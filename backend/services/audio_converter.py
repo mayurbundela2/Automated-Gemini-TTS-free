@@ -171,8 +171,8 @@ class AudioConverter:
         output_wav: str,
         output_mp3: Optional[str] = None,
         output_mp4: Optional[str] = None,
-        silence_duration_threshold: float = 0.35,
-        silence_db_threshold: str = "-40dB",
+        silence_duration_threshold: float = 0.18,
+        silence_db_threshold: str = "-42dB",
         ffmpeg_path: str = "ffmpeg",
         bitrate: str = "320k"
     ) -> Dict[str, Any]:
@@ -187,11 +187,15 @@ class AudioConverter:
         out_wav_path = Path(output_wav)
         out_wav_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # 1. Trim pauses in WAV
+        # 1. Trim pauses in WAV with lead-in and inter-sentence silence removal
+        filter_str = (
+            f"silenceremove=start_periods=1:start_duration=0.04:start_threshold=-45dB:"
+            f"stop_periods=-1:stop_duration={silence_duration_threshold}:stop_threshold={silence_db_threshold}"
+        )
         cmd_trim = [
             ffmpeg_path, "-y",
             "-i", str(in_path),
-            "-af", f"silenceremove=stop_periods=-1:stop_duration={silence_duration_threshold}:stop_threshold={silence_db_threshold}",
+            "-af", filter_str,
             str(out_wav_path)
         ]
 

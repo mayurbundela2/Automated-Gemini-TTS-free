@@ -167,7 +167,7 @@ def combine_batch_audio_files(batch_id: int, db: Session) -> Dict[str, Any]:
         wav_file_paths=wav_paths,
         output_wav_path=combined_wav,
         output_mp3_path=combined_mp3,
-        silence_gap_seconds=0.4,
+        silence_gap_seconds=0.20,
         ffmpeg_path=ffmpeg_path,
         bitrate=bitrate
     )
@@ -193,7 +193,7 @@ def combine_batch_audio_files(batch_id: int, db: Session) -> Dict[str, Any]:
         paragraphs_data=paras_meta,
         output_base_dir=batch_dir,
         prefix="full_batch_narration",
-        silence_gap=0.4,
+        silence_gap=0.20,
         scale_factor=1.0
     )
 
@@ -209,7 +209,7 @@ def combine_batch_audio_files(batch_id: int, db: Session) -> Dict[str, Any]:
     }
 
 
-def tighten_batch_audio_files(batch_id: int, db: Session, silence_threshold: float = 0.35) -> Dict[str, Any]:
+def tighten_batch_audio_files(batch_id: int, db: Session, silence_threshold: float = 0.18) -> Dict[str, Any]:
     """
     Trims excessive pauses / silences from the combined audio, producing no-pause WAV, MP3, timeline MP4 video,
     and no-pause aligned SRT/VTT/JSON subtitles.
@@ -246,7 +246,7 @@ def tighten_batch_audio_files(batch_id: int, db: Session, silence_threshold: flo
         output_mp3=tight_mp3,
         output_mp4=tight_mp4,
         silence_duration_threshold=silence_threshold,
-        silence_db_threshold="-40dB",
+        silence_db_threshold="-42dB",
         ffmpeg_path=ffmpeg_path,
         bitrate=bitrate
     )
@@ -275,7 +275,7 @@ def tighten_batch_audio_files(batch_id: int, db: Session, silence_threshold: flo
         paragraphs_data=paras_meta,
         output_base_dir=batch_dir,
         prefix="full_batch_tight",
-        silence_gap=0.15,
+        silence_gap=0.10,
         scale_factor=scale
     )
 
@@ -299,12 +299,12 @@ def trigger_combine_batch_audio(batch_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/api/batches/{batch_id}/tighten-audio")
-def trigger_tighten_batch_audio(batch_id: int, silence_threshold: float = 0.35, db: Session = Depends(get_db)):
+def trigger_tighten_batch_audio(batch_id: int, silence_threshold: float = 0.18, db: Session = Depends(get_db)):
     return tighten_batch_audio_files(batch_id, db, silence_threshold)
 
 
 @router.post("/api/batches/{batch_id}/rebuild-all")
-def trigger_rebuild_all_batch_audio(batch_id: int, silence_threshold: float = 0.35, db: Session = Depends(get_db)):
+def trigger_rebuild_all_batch_audio(batch_id: int, silence_threshold: float = 0.18, db: Session = Depends(get_db)):
     """
     Rebuilds both the master combined narration and the no-pause tight narration + timeline MP4 video + subtitles.
     """

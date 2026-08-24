@@ -162,6 +162,7 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
   const [tightening, setTightening] = useState(false);
   const [rebuilding, setRebuilding] = useState(false);
   const [audioCacheKey, setAudioCacheKey] = useState<number>(Date.now());
+  const [silenceThreshold, setSilenceThreshold] = useState<number>(0.18);
   const [showSubtitleModal, setShowSubtitleModal] = useState(false);
   const [subtitleModalType, setSubtitleModalType] = useState<'master' | 'tight'>('master');
   const [wordTimestamps, setWordTimestamps] = useState<any>(null);
@@ -183,7 +184,7 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
     if (!selectedBatchId) return;
     setTightening(true);
     try {
-      await api.tightenBatchAudio(selectedBatchId, 0.35);
+      await api.tightenBatchAudio(selectedBatchId, silenceThreshold);
       setAudioCacheKey(Date.now());
       await fetchCurrentBatch();
     } catch (e: any) {
@@ -197,7 +198,7 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
     if (!selectedBatchId) return;
     setRebuilding(true);
     try {
-      await api.rebuildAllBatchAudio(selectedBatchId, 0.35);
+      await api.rebuildAllBatchAudio(selectedBatchId, silenceThreshold);
       setAudioCacheKey(Date.now());
       await fetchCurrentBatch();
     } catch (e: any) {
@@ -438,6 +439,17 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
                       <RefreshCw className={`w-3.5 h-3.5 ${rebuilding ? 'animate-spin' : ''}`} />
                       <span>REBUILD ALL</span>
                     </button>
+
+                    <select
+                      value={silenceThreshold}
+                      onChange={(e) => setSilenceThreshold(parseFloat(e.target.value))}
+                      className="bg-slate-900/90 border border-amber-500/40 rounded-xl px-2.5 py-1.5 text-xs text-amber-300 font-mono focus:outline-none focus:border-amber-400 font-bold shadow"
+                      title="Select pause trimming aggressiveness"
+                    >
+                      <option value={0.12}>🔥 Ultra-Tight (0.12s)</option>
+                      <option value={0.18}>⚡ Clean & Punchy (0.18s)</option>
+                      <option value={0.28}>🌿 Natural (0.28s)</option>
+                    </select>
 
                     <button
                       onClick={handleTightenBatchAudio}
