@@ -1,0 +1,56 @@
+import os
+from pathlib import Path
+from sqlalchemy import create_engine
+from sqlalchemy.orm import declarative_base, sessionmaker
+
+DATABASE_DIR = Path(__file__).resolve().parent.parent / "data"
+DATABASE_DIR.mkdir(parents=True, exist_ok=True)
+DATABASE_URL = f"sqlite:///{DATABASE_DIR / 'automate_ai_video.db'}"
+
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False},
+)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+
+def init_db():
+    Base.metadata.create_all(bind=engine)
+    # Check and add new columns if existing SQLite DB
+    import sqlite3
+    db_file = DATABASE_DIR / "automate_ai_video.db"
+    if db_file.exists():
+        conn = sqlite3.connect(str(db_file))
+        cursor = conn.cursor()
+        try:
+            cursor.execute("PRAGMA table_info(batches)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if "combined_wav_path" not in columns:
+                cursor.execute("ALTER TABLE batches ADD COLUMN combined_wav_path VARCHAR(500)")
+            if "combined_mp3_path" not in columns:
+                cursor.execute("ALTER TABLE batches ADD COLUMN combined_mp3_path VARCHAR(500)")
+            if "combined_duration" not in columns:
+                cursor.execute("ALTER TABLE batches ADD COLUMN combined_duration FLOAT")
+            if "tight_wav_path" not in columns:
+                cursor.execute("ALTER TABLE batches ADD COLUMN tight_wav_path VARCHAR(500)")
+            if "tight_mp3_path" not in columns:
+                cursor.execute("ALTER TABLE batches ADD COLUMN tight_mp3_path VARCHAR(500)")
+            if "tight_mp4_path" not in columns:
+                cursor.execute("ALTER TABLE batches ADD COLUMN tight_mp4_path VARCHAR(500)")
+            if "tight_duration" not in columns:
+                cursor.execute("ALTER TABLE batches ADD COLUMN tight_duration FLOAT")
+            conn.commit()
+        except Exception as e:
+            print(f"[DB] Migration note: {e}")
+        finally:
+            conn.close()
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
