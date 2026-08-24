@@ -193,8 +193,8 @@ def combine_batch_audio_files(batch_id: int, db: Session) -> Dict[str, Any]:
         paragraphs_data=paras_meta,
         output_base_dir=batch_dir,
         prefix="full_batch_narration",
-        silence_gap=0.20,
-        scale_factor=1.0
+        full_wav_path=combined_wav,
+        words_per_caption=4
     )
 
     waveform = WaveformService.extract_peaks_from_wav(combined_wav)
@@ -257,7 +257,7 @@ def tighten_batch_audio_files(batch_id: int, db: Session, silence_threshold: flo
     batch.tight_duration = result["duration"]
     db.commit()
 
-    # Generate Tight Subtitles with aligned duration scale
+    # Generate Tight Subtitles directly aligned with tight_wav
     paragraphs = db.query(Paragraph).filter(Paragraph.batch_id == batch_id).order_by(Paragraph.paragraph_number.asc(), Paragraph.id.asc()).all()
     paras_meta = []
     for p in paragraphs:
@@ -270,13 +270,12 @@ def tighten_batch_audio_files(batch_id: int, db: Session, silence_threshold: flo
             "duration": dur
         })
 
-    scale = (result["duration"] / (batch.combined_duration or result["duration"])) if batch.combined_duration else 1.0
     SubtitleService.generate_batch_subtitles(
         paragraphs_data=paras_meta,
         output_base_dir=batch_dir,
         prefix="full_batch_tight",
-        silence_gap=0.10,
-        scale_factor=scale
+        full_wav_path=tight_wav,
+        words_per_caption=4
     )
 
     waveform = WaveformService.extract_peaks_from_wav(tight_wav)

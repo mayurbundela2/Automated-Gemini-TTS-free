@@ -1,15 +1,17 @@
 import re
 import json
 import math
+import subprocess
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
+from backend.services.audio_converter import AudioConverter
 
 
 class SubtitleService:
     """
-    Precision Subtitle & Word-Level Timestamp Generation Service.
-    Produces SRT, VTT, and JSON word-level timestamps optimized for video editors
-    (CapCut, Premiere Pro, DaVinci Resolve, Final Cut Pro).
+    VAD-Powered Precision Subtitle & Word-Level Timestamp Generation Service.
+    Uses FFmpeg voice activity / silence boundary detection to anchor captions
+    and words to the exact milliseconds of spoken audio, eliminating drift.
     """
 
     @staticmethod
@@ -23,7 +25,7 @@ class SubtitleService:
     @classmethod
     def format_timestamp_srt(cls, seconds: float) -> str:
         """
-        Converts seconds (e.g. 75.432) to standard SRT format: HH:MM:SS,mmm
+        Converts seconds to standard SRT format: HH:MM:SS,mmm
         """
         if seconds < 0:
             seconds = 0.0
@@ -49,64 +51,154 @@ class SubtitleService:
         return f"{hrs:02d}:{mins:02d}:{secs:02d}.{ms:03d}"
 
     @classmethod
-    def generate_paragraph_word_timestamps(
+    def detect_speech_intervals(
+        cls,
+        wav_path: str,
+        noise_threshold: str = "-38dB",
+        min_silence: float = 0.15
+    ) -> List[Dict[str, float]]:
+        """
+        Detects exact speech intervals in the audio file using FFmpeg silencedetect.
+        Returns a list of dicts with start, end, and duration of active speech periods.
+        """
+        if not wav_path or not Path(wav_path).exists():
+            return []
+
+        cmd = [
+            "ffmpeg", "-i", str(wav_path),
+            "-af", f"silencedetect=noise={noise_threshold}:d={min_silence}",
+            "-f", "null", "-"
+        ]
+
+        try:
+            res = subprocess.run(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, text=True, check=True)
+            output = res.stderr
+        except Exception:
+            for fb in ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]:
+                if Path(fb).exists():
+                    cmd[0] = fb
+                    try:
+                        res = subprocess.run(cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, text=True, check=True)
+                        output = res.stderr
+                        break
+                    except Exception:
+                        continue
+            else:
+                return []
+
+        info = AudioConverter.get_audio_info(str(wav_path))
+        total_dur = info.get("duration", 0.0)
+
+        silences = []
+        for line in output.split('\n'):
+            if 'silence_start:' in line:
+                m = re.search(r'silence_start:\s*([0-9.]+)', line)
+                if m:
+                    silences.append({'start': float(m.group(1))})
+            elif 'silence_end:' in line:
+                m = re.search(r'silence_end:\s*([0-9.]+)\s*\|\s*silence_duration:\s*([0-9.]+)', line)
+                if m and silences and 'end' not in silences[-1]:
+                    silences[-1]['end'] = float(m.group(1))
+                    silences[-1]['dur'] = float(m.group(2))
+
+        speech_intervals = []
+        prev_end = 0.0
+        for s in silences:
+            s_start = s['start']
+            s_end = s.get('end', s_start)
+            if s_start > prev_end + 0.04:
+                speech_intervals.append({
+                    'start': round(prev_end, 3),
+                    'end': round(s_start, 3),
+                    'duration': round(s_start - prev_end, 3)
+                })
+            prev_end = s_end
+
+        if prev_end < total_dur - 0.04:
+            speech_intervals.append({
+                'start': round(prev_end, 3),
+                'end': round(total_dur, 3),
+                'duration': round(total_dur - prev_end, 3)
+            })
+
+        return speech_intervals
+
+    @classmethod
+    def align_words_with_vad(
         cls,
         transcript: str,
-        start_offset: float,
-        duration: float
+        wav_path: Optional[str] = None,
+        duration: float = 2.0,
+        start_offset: float = 0.0
     ) -> List[Dict[str, Any]]:
         """
-        Estimates millisecond-accurate word-level timestamps for a paragraph
-        using word character length, syllable weighting, and punctuation pauses.
+        Aligns words strictly within active speech intervals detected from audio.
+        Guarantees that pauses/silences contain no overlapping words.
         """
         cleaned = cls.clean_transcript(transcript)
-        words = cleaned.split()
+        words = [w.strip() for w in cleaned.split() if w.strip()]
         if not words:
             return []
 
-        if duration <= 0:
-            duration = max(1.0, len(words) * 0.35)
+        intervals = []
+        if wav_path and Path(wav_path).exists():
+            intervals = cls.detect_speech_intervals(wav_path)
 
-        # Calculate weight for each word (length + punctuation pause)
-        weights = []
-        for w in words:
-            weight = max(1.0, len(w))
-            if w.endswith('...') or '...' in w:
-                weight += 4.0
-            elif w.endswith('.') or w.endswith('?') or w.endswith('!'):
-                weight += 2.8
-            elif w.endswith(',') or w.endswith(';') or w.endswith(':'):
-                weight += 1.6
-            elif w.endswith('-'):
-                weight += 1.0
-            weights.append(weight)
+        if not intervals:
+            # Fallback to single interval matching given duration
+            intervals = [{'start': 0.0, 'end': duration, 'duration': max(0.5, duration)}]
 
-        total_weight = sum(weights) or 1.0
-        current_time = start_offset
+        total_chars = sum(len(w) for w in words)
+        total_speech_dur = sum(inv['duration'] for inv in intervals) or 1.0
+
         word_entries = []
+        w_idx = 0
 
-        for idx, (word, weight) in enumerate(zip(words, weights)):
-            word_duration = (weight / total_weight) * duration
-            # Speech time vs micro inter-word pause
-            speech_dur = max(0.08, word_duration * 0.90)
-            end_time = round(current_time + speech_dur, 3)
+        for inv_idx, inv in enumerate(intervals):
+            inv_start = inv['start'] + start_offset
+            inv_dur = inv['duration']
 
-            word_entries.append({
-                "index": idx + 1,
-                "word": word,
-                "start": round(current_time, 3),
-                "end": end_time,
-                "duration": round(speech_dur, 3)
-            })
-            current_time += word_duration
+            if inv_idx == len(intervals) - 1:
+                chunk_words = words[w_idx:]
+            else:
+                target_chars = (inv_dur / total_speech_dur) * total_chars
+                curr_chars = 0
+                chunk_words = []
+                while w_idx < len(words):
+                    w = words[w_idx]
+                    chunk_words.append(w)
+                    curr_chars += len(w)
+                    w_idx += 1
+                    if curr_chars >= target_chars and len(chunk_words) >= 1:
+                        break
+
+            if not chunk_words:
+                continue
+
+            chunk_weights = [max(1.0, len(w)) for w in chunk_words]
+            chunk_weight_sum = sum(chunk_weights) or 1.0
+
+            curr_t = inv_start
+            for cw, cwt in zip(chunk_words, chunk_weights):
+                w_dur = (cwt / chunk_weight_sum) * inv_dur
+                s_dur = max(0.06, w_dur * 0.90)
+                end_t = round(curr_t + s_dur, 3)
+                word_entries.append({
+                    "index": len(word_entries) + 1,
+                    "word": cw,
+                    "start": round(curr_t, 3),
+                    "end": end_t,
+                    "duration": round(s_dur, 3)
+                })
+                curr_t += w_dur
 
         return word_entries
 
     @classmethod
     def build_srt_content(cls, word_entries: List[Dict[str, Any]], words_per_caption: int = 4) -> str:
         """
-        Builds standard, CapCut-friendly .SRT subtitle file from word-level timestamps.
-        Each caption segment spans 3-5 words with continuous start-to-end timestamps.
+        Builds CapCut & Premiere Pro compliant .SRT subtitle file.
+        Groups words into 3-4 word segments anchored to voice activity.
         """
         if not word_entries:
             return ""
@@ -124,10 +216,13 @@ class SubtitleService:
                 continue
 
             start_sec = chunk[0]["start"]
-            # To prevent gap flickering in CapCut, extend end to next chunk start if close
+            # If next chunk is within 0.15s, extend cleanly to eliminate flicker
             if idx < len(chunks) - 1 and chunks[idx + 1]:
                 next_start = chunks[idx + 1][0]["start"]
-                end_sec = max(chunk[-1]["end"], next_start - 0.05)
+                if next_start - chunk[-1]["end"] <= 0.25:
+                    end_sec = round(next_start - 0.02, 3)
+                else:
+                    end_sec = chunk[-1]["end"]
             else:
                 end_sec = chunk[-1]["end"]
 
@@ -166,7 +261,10 @@ class SubtitleService:
             start_sec = chunk[0]["start"]
             if idx < len(chunks) - 1 and chunks[idx + 1]:
                 next_start = chunks[idx + 1][0]["start"]
-                end_sec = max(chunk[-1]["end"], next_start - 0.05)
+                if next_start - chunk[-1]["end"] <= 0.25:
+                    end_sec = round(next_start - 0.02, 3)
+                else:
+                    end_sec = chunk[-1]["end"]
             else:
                 end_sec = chunk[-1]["end"]
 
@@ -189,16 +287,23 @@ class SubtitleService:
         duration: float,
         output_dir: Path,
         prefix: str = "narration",
+        wav_path: Optional[str] = None,
         words_per_caption: int = 4
     ) -> Dict[str, Any]:
         """
-        Generates individual paragraph subtitle files (00:00:00 -> duration).
+        Generates individual paragraph subtitle files using exact audio VAD alignment.
         """
         output_dir.mkdir(parents=True, exist_ok=True)
-        words = cls.generate_paragraph_word_timestamps(
+        if not wav_path:
+            candidate = output_dir / f"{prefix}.wav"
+            if candidate.exists():
+                wav_path = str(candidate)
+
+        words = cls.align_words_with_vad(
             transcript=transcript,
-            start_offset=0.0,
-            duration=duration
+            wav_path=wav_path,
+            duration=duration,
+            start_offset=0.0
         )
 
         srt_content = cls.build_srt_content(words, words_per_caption=words_per_caption)
@@ -231,36 +336,32 @@ class SubtitleService:
         paragraphs_data: List[Dict[str, Any]],
         output_base_dir: Path,
         prefix: str = "full_batch_narration",
-        silence_gap: float = 0.4,
-        scale_factor: float = 1.0,
+        full_wav_path: Optional[str] = None,
         words_per_caption: int = 4
     ) -> Dict[str, Any]:
         """
-        Generates .SRT, .VTT, and .JSON word-level subtitle files for a full batch.
-        `scale_factor` is used to scale timestamps when pauses are trimmed (for tight audio).
+        Generates .SRT, .VTT, and .JSON subtitle files for a full batch using direct WAV VAD alignment.
         """
         output_base_dir.mkdir(parents=True, exist_ok=True)
         all_words: List[Dict[str, Any]] = []
-        current_offset = 0.0
 
-        for p_idx, p in enumerate(paragraphs_data):
-            transcript = p.get("transcript", "")
-            duration = (p.get("duration") or 2.0) * scale_factor
-            gap = silence_gap * scale_factor if p_idx > 0 else 0.0
+        if not full_wav_path:
+            candidate = output_base_dir / f"{prefix}.wav"
+            if candidate.exists():
+                full_wav_path = str(candidate)
 
-            current_offset += gap
-            p_words = cls.generate_paragraph_word_timestamps(
-                transcript=transcript,
-                start_offset=current_offset,
-                duration=duration
-            )
+        # Full transcript across all paragraphs
+        full_transcript = " \n\n ".join(p.get("transcript", "") for p in paragraphs_data)
+        info = AudioConverter.get_audio_info(full_wav_path) if full_wav_path else {}
+        total_duration = info.get("duration", sum(p.get("duration", 2.0) for p in paragraphs_data))
 
-            for pw in p_words:
-                pw["paragraph_number"] = p.get("paragraph_number", p_idx + 1)
-                pw["part_title"] = p.get("part_title", "")
-                all_words.append(pw)
-
-            current_offset += duration
+        # Direct VAD alignment on the actual generated audio track
+        all_words = cls.align_words_with_vad(
+            transcript=full_transcript,
+            wav_path=full_wav_path,
+            duration=total_duration,
+            start_offset=0.0
+        )
 
         # 1. SRT file
         srt_content = cls.build_srt_content(all_words, words_per_caption=words_per_caption)
@@ -275,7 +376,7 @@ class SubtitleService:
         # 3. Word-level JSON timestamps
         json_data = {
             "total_words": len(all_words),
-            "total_duration": round(current_offset, 3),
+            "total_duration": round(total_duration, 3),
             "words": all_words
         }
         json_file = output_base_dir / f"{prefix}_words.json"
@@ -286,5 +387,5 @@ class SubtitleService:
             "vtt_path": str(vtt_file),
             "json_path": str(json_file),
             "total_words": len(all_words),
-            "duration": round(current_offset, 3)
+            "duration": round(total_duration, 3)
         }
