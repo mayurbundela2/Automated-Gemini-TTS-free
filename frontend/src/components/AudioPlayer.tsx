@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Play, Pause, Volume2, VolumeX, Download, FileAudio, RotateCcw } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Download, FileAudio, RotateCcw, FileText } from 'lucide-react';
 import { Waveform } from './Waveform';
 import { api } from '../api';
 import { Generation } from '../types';
@@ -185,20 +185,63 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ generation }) => {
           ))}
         </div>
 
-        {/* Volume Controls */}
+        {/* Volume & Downloads */}
         <div className="flex items-center space-x-2">
-          <button onClick={toggleMute} className="text-studio-textMuted hover:text-white transition-colors">
-            {isMuted || volume === 0 ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
-          </button>
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.05"
-            value={isMuted ? 0 : volume}
-            onChange={handleVolumeChange}
-            className="w-16 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-          />
+          <div className="flex items-center space-x-1 mr-2">
+            <button onClick={toggleMute} className="text-studio-textMuted hover:text-white transition-colors">
+              {isMuted || volume === 0 ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
+            </button>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={isMuted ? 0 : volume}
+              onChange={handleVolumeChange}
+              className="w-14 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+            />
+          </div>
+
+          <a
+            href={api.getAudioUrl(generation.id, 'wav', true)}
+            download
+            className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-blue-600/80 hover:bg-blue-500 text-white text-[11px] font-bold shadow transition-all"
+            title="Download Master Lossless WAV"
+          >
+            <Download className="w-3 h-3" />
+            <span>WAV</span>
+          </a>
+
+          {generation.mp3_path && (
+            <a
+              href={api.getAudioUrl(generation.id, 'mp3', true)}
+              download
+              className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold border border-slate-700 shadow transition-all"
+              title="Download 320k MP3"
+            >
+              <Download className="w-3 h-3" />
+              <span>MP3</span>
+            </a>
+          )}
+
+          <a
+            href={api.getParagraphSubtitlesUrl(generation.paragraph_id, 'srt', true)}
+            download
+            className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-indigo-600/80 hover:bg-indigo-500 text-white text-[11px] font-bold shadow transition-all"
+            title="Download Subtitles for CapCut / Premiere Pro (.SRT)"
+          >
+            <FileText className="w-3 h-3" />
+            <span>.SRT</span>
+          </a>
+
+          <a
+            href={api.getParagraphSubtitlesUrl(generation.paragraph_id, 'json', true)}
+            download
+            className="flex items-center space-x-1 px-1.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-mono border border-slate-700 transition-all"
+            title="Download Word-by-Word JSON Timestamps"
+          >
+            <span>JSON</span>
+          </a>
         </div>
       </div>
     </div>

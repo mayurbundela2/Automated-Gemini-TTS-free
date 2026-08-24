@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.models import Project, Batch, Paragraph, Generation, AppSetting
@@ -15,7 +16,8 @@ from backend.services.prompt_builder import PromptBuilder
 from backend.services.gemini_tts_service import GeminiTTSService
 from backend.services.audio_converter import AudioConverter
 from backend.services.waveform_service import WaveformService
-from backend.services.delivery_provider import LocalDeliveryProvider
+from backend.services.subtitle_service import SubtitleService
+from backend.services.delivery_provider import LocalDeliveryProvider, sanitize_filename
 from backend.config.settings import settings
 
 router = APIRouter(tags=["Paragraphs"])
@@ -174,6 +176,14 @@ def execute_paragraph_generation(paragraph_id: int, db: Session) -> Dict[str, An
             wav_bytes=open(saved_wav, "rb").read(),
             mp3_path_or_bytes=saved_mp3,
             metadata=metadata_payload
+        )
+
+        # Generate paragraph subtitles (SRT, VTT, JSON)
+        SubtitleService.generate_paragraph_subtitles(
+            transcript=para.transcript,
+            duration=duration,
+            output_dir=target_dir,
+            prefix="narration"
         )
 
         # Create Generation record
@@ -476,3 +486,56 @@ def merge_subparagraphs(paragraph_id: int, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(para)
     return {"status": "merged", "paragraph_id": para.id}
+
+
+@router.get("/api/paragraphs/{paragraph_id}/subtitles")
+def get_paragraph_subtitles(paragraph_id: int, format: str = "srt", download: bool = False, db: Session = Depends(get_db)):
+    """
+    Downloads or returns .SRT, .VTT, or .JSON subtitles for a single paragraph.
+    """
+    para = get_paragraph_or_404(paragraph_id, db)
+    batch = para.batch
+    project = batch.project
+    output_dir_setting = db.query(AppSetting).filter(AppSetting.key == "OUTPUT_FOLDER").first()
+    output_base = output_dir_setting.value if output_dir_setting else settings.OUTPUT_FOLDER
+    delivery = LocalDeliveryProvider(base_output_dir=output_base)
+    target_dir = delivery.get_paragraph_dir(
+        project_name=project.name,
+        batch_number=batch.batch_number,
+        paragraph_number=para.paragraph_number,
+        part_identifier=para.part_number
+    )
+    filename_suffix = "_words.json" if format == "json" else f".{format}"
+    file_path = target_dir / f"narration{filename_suffix}"
+    
+    if not file_path.exists():
+        latest_gen = db.query(Generation).filter(Generation.paragraph_id == para.id, Generation.status == "COMPLETED").order_by(Generation.created_at.desc()).first()
+        dur = latest_gen.duration if (latest_gen and latest_gen.duration) else max(2.0, para.word_count * 0.35)
+        SubtitleService.generate_paragraph_subtitles(
+            transcript=para.transcript,
+            duration=dur,
+            output_dir=target_dir,
+            prefix="narration"
+        )
+        
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Subtitle file not found.")
+
+    media_types = {
+        "srt": "application/x-subrip",
+        "vtt": "text/vtt",
+        "json": "application/json"
+    }
+    media_type = media_types.get(format, "text/plain")
+    safe_part = sanitize_filename(para.part_number or f"Part_{para.paragraph_number}")[:30]
+    safe_proj = sanitize_filename(project.name)[:30]
+    download_name = f"{safe_proj}_P{para.paragraph_number:02d}_{safe_part}{filename_suffix}"
+    disposition = "attachment" if download else "inline"
+
+    return FileResponse(
+        path=str(file_path),
+        media_type=media_type,
+        filename=download_name,
+        headers={"Content-Disposition": f"{disposition}; filename=\"{download_name}\""}
+    )
+

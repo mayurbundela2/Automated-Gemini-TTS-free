@@ -8,8 +8,8 @@ from typing import List, Dict, Any, Tuple, Optional
 class SubtitleService:
     """
     Precision Subtitle & Word-Level Timestamp Generation Service.
-    Produces SRT, VTT, and JSON word-level timestamps for video editors
-    (Premiere Pro, CapCut, DaVinci Resolve, Final Cut Pro).
+    Produces SRT, VTT, and JSON word-level timestamps optimized for video editors
+    (CapCut, Premiere Pro, DaVinci Resolve, Final Cut Pro).
     """
 
     @staticmethod
@@ -23,8 +23,10 @@ class SubtitleService:
     @classmethod
     def format_timestamp_srt(cls, seconds: float) -> str:
         """
-        Converts seconds (e.g. 75.432) to SRT format: HH:MM:SS,mmm
+        Converts seconds (e.g. 75.432) to standard SRT format: HH:MM:SS,mmm
         """
+        if seconds < 0:
+            seconds = 0.0
         total_ms = int(round(seconds * 1000))
         hrs = total_ms // 3600000
         mins = (total_ms % 3600000) // 60000
@@ -35,8 +37,10 @@ class SubtitleService:
     @classmethod
     def format_timestamp_vtt(cls, seconds: float) -> str:
         """
-        Converts seconds to WebVTT format: HH:MM:SS.mmm
+        Converts seconds to standard WebVTT format: HH:MM:SS.mmm
         """
+        if seconds < 0:
+            seconds = 0.0
         total_ms = int(round(seconds * 1000))
         hrs = total_ms // 3600000
         mins = (total_ms % 3600000) // 60000
@@ -53,7 +57,7 @@ class SubtitleService:
     ) -> List[Dict[str, Any]]:
         """
         Estimates millisecond-accurate word-level timestamps for a paragraph
-        using word length, syllable weighting, and punctuation pauses.
+        using word character length, syllable weighting, and punctuation pauses.
         """
         cleaned = cls.clean_transcript(transcript)
         words = cleaned.split()
@@ -66,15 +70,13 @@ class SubtitleService:
         # Calculate weight for each word (length + punctuation pause)
         weights = []
         for w in words:
-            # Base weight by character length
             weight = max(1.0, len(w))
-            # Extra weight / pause for punctuation
             if w.endswith('...') or '...' in w:
-                weight += 4.5
+                weight += 4.0
             elif w.endswith('.') or w.endswith('?') or w.endswith('!'):
-                weight += 3.0
+                weight += 2.8
             elif w.endswith(',') or w.endswith(';') or w.endswith(':'):
-                weight += 1.8
+                weight += 1.6
             elif w.endswith('-'):
                 weight += 1.0
             weights.append(weight)
@@ -85,8 +87,8 @@ class SubtitleService:
 
         for idx, (word, weight) in enumerate(zip(words, weights)):
             word_duration = (weight / total_weight) * duration
-            # Distribute into speech time and small trailing micro-pause
-            speech_dur = word_duration * 0.85
+            # Speech time vs micro inter-word pause
+            speech_dur = max(0.08, word_duration * 0.90)
             end_time = round(current_time + speech_dur, 3)
 
             word_entries.append({
@@ -101,10 +103,10 @@ class SubtitleService:
         return word_entries
 
     @classmethod
-    def build_srt_content(cls, word_entries: List[Dict[str, Any]], words_per_caption: int = 5) -> str:
+    def build_srt_content(cls, word_entries: List[Dict[str, Any]], words_per_caption: int = 4) -> str:
         """
-        Builds standard .SRT subtitle file from word-level timestamp entries,
-        chunking words into natural 3-6 word caption segments.
+        Builds standard, CapCut-friendly .SRT subtitle file from word-level timestamps.
+        Each caption segment spans 3-5 words with continuous start-to-end timestamps.
         """
         if not word_entries:
             return ""
@@ -112,13 +114,25 @@ class SubtitleService:
         srt_lines = []
         caption_idx = 1
 
-        for i in range(0, len(word_entries), words_per_caption):
-            chunk = word_entries[i:i + words_per_caption]
+        chunks = [
+            word_entries[i:i + words_per_caption]
+            for i in range(0, len(word_entries), words_per_caption)
+        ]
+
+        for idx, chunk in enumerate(chunks):
             if not chunk:
                 continue
 
-            start_str = cls.format_timestamp_srt(chunk[0]["start"])
-            end_str = cls.format_timestamp_srt(chunk[-1]["end"])
+            start_sec = chunk[0]["start"]
+            # To prevent gap flickering in CapCut, extend end to next chunk start if close
+            if idx < len(chunks) - 1 and chunks[idx + 1]:
+                next_start = chunks[idx + 1][0]["start"]
+                end_sec = max(chunk[-1]["end"], next_start - 0.05)
+            else:
+                end_sec = chunk[-1]["end"]
+
+            start_str = cls.format_timestamp_srt(start_sec)
+            end_str = cls.format_timestamp_srt(end_sec)
             text = " ".join(c["word"] for c in chunk)
 
             srt_lines.append(f"{caption_idx}")
@@ -127,26 +141,37 @@ class SubtitleService:
             srt_lines.append("")
             caption_idx += 1
 
-        return "\n".join(srt_lines)
+        return "\r\n".join(srt_lines) + "\r\n"
 
     @classmethod
-    def build_vtt_content(cls, word_entries: List[Dict[str, Any]], words_per_caption: int = 5) -> str:
+    def build_vtt_content(cls, word_entries: List[Dict[str, Any]], words_per_caption: int = 4) -> str:
         """
         Builds standard .VTT WebVTT subtitle file.
         """
         if not word_entries:
-            return "WEBVTT\n\n"
+            return "WEBVTT\r\n\r\n"
 
         vtt_lines = ["WEBVTT", ""]
         caption_idx = 1
 
-        for i in range(0, len(word_entries), words_per_caption):
-            chunk = word_entries[i:i + words_per_caption]
+        chunks = [
+            word_entries[i:i + words_per_caption]
+            for i in range(0, len(word_entries), words_per_caption)
+        ]
+
+        for idx, chunk in enumerate(chunks):
             if not chunk:
                 continue
 
-            start_str = cls.format_timestamp_vtt(chunk[0]["start"])
-            end_str = cls.format_timestamp_vtt(chunk[-1]["end"])
+            start_sec = chunk[0]["start"]
+            if idx < len(chunks) - 1 and chunks[idx + 1]:
+                next_start = chunks[idx + 1][0]["start"]
+                end_sec = max(chunk[-1]["end"], next_start - 0.05)
+            else:
+                end_sec = chunk[-1]["end"]
+
+            start_str = cls.format_timestamp_vtt(start_sec)
+            end_str = cls.format_timestamp_vtt(end_sec)
             text = " ".join(c["word"] for c in chunk)
 
             vtt_lines.append(f"{caption_idx}")
@@ -155,7 +180,50 @@ class SubtitleService:
             vtt_lines.append("")
             caption_idx += 1
 
-        return "\n".join(vtt_lines)
+        return "\r\n".join(vtt_lines) + "\r\n"
+
+    @classmethod
+    def generate_paragraph_subtitles(
+        cls,
+        transcript: str,
+        duration: float,
+        output_dir: Path,
+        prefix: str = "narration",
+        words_per_caption: int = 4
+    ) -> Dict[str, Any]:
+        """
+        Generates individual paragraph subtitle files (00:00:00 -> duration).
+        """
+        output_dir.mkdir(parents=True, exist_ok=True)
+        words = cls.generate_paragraph_word_timestamps(
+            transcript=transcript,
+            start_offset=0.0,
+            duration=duration
+        )
+
+        srt_content = cls.build_srt_content(words, words_per_caption=words_per_caption)
+        srt_file = output_dir / f"{prefix}.srt"
+        srt_file.write_text(srt_content, encoding="utf-8")
+
+        vtt_content = cls.build_vtt_content(words, words_per_caption=words_per_caption)
+        vtt_file = output_dir / f"{prefix}.vtt"
+        vtt_file.write_text(vtt_content, encoding="utf-8")
+
+        json_file = output_dir / f"{prefix}_words.json"
+        json_data = {
+            "total_words": len(words),
+            "total_duration": round(duration, 3),
+            "words": words
+        }
+        json_file.write_text(json.dumps(json_data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+        return {
+            "srt_path": str(srt_file),
+            "vtt_path": str(vtt_file),
+            "json_path": str(json_file),
+            "total_words": len(words),
+            "duration": round(duration, 3)
+        }
 
     @classmethod
     def generate_batch_subtitles(
@@ -164,7 +232,8 @@ class SubtitleService:
         output_base_dir: Path,
         prefix: str = "full_batch_narration",
         silence_gap: float = 0.4,
-        scale_factor: float = 1.0
+        scale_factor: float = 1.0,
+        words_per_caption: int = 4
     ) -> Dict[str, Any]:
         """
         Generates .SRT, .VTT, and .JSON word-level subtitle files for a full batch.
@@ -194,12 +263,12 @@ class SubtitleService:
             current_offset += duration
 
         # 1. SRT file
-        srt_content = cls.build_srt_content(all_words, words_per_caption=5)
+        srt_content = cls.build_srt_content(all_words, words_per_caption=words_per_caption)
         srt_file = output_base_dir / f"{prefix}.srt"
         srt_file.write_text(srt_content, encoding="utf-8")
 
         # 2. VTT file
-        vtt_content = cls.build_vtt_content(all_words, words_per_caption=5)
+        vtt_content = cls.build_vtt_content(all_words, words_per_caption=words_per_caption)
         vtt_file = output_base_dir / f"{prefix}.vtt"
         vtt_file.write_text(vtt_content, encoding="utf-8")
 

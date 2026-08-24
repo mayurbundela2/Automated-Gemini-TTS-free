@@ -225,6 +225,10 @@ export const api = {
     return res.json();
   },
 
+  getParagraphSubtitlesUrl(paragraphId: number, format: 'srt' | 'vtt' | 'json' = 'srt', download = false): string {
+    return `${API_BASE}/paragraphs/${paragraphId}/subtitles?format=${format}${download ? '&download=true' : ''}`;
+  },
+
   // Paragraphs
   async updateParagraph(id: number, data: Partial<Paragraph>): Promise<Paragraph> {
     const res = await fetch(`${API_BASE}/paragraphs/${id}`, {
