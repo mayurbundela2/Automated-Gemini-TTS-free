@@ -66,7 +66,7 @@ export const SequenceEditorPage: React.FC<SequenceEditorPageProps> = ({
       if (seqData.timeline_cuts) {
         setTimelineCuts(seqData.timeline_cuts);
         const calculatedDur = seqData.timeline_cuts.reduce(
-          (acc: number, c: TimelineCut) => Math.max(acc, c.end_time),
+          (acc: number, c: TimelineCut) => Math.max(acc, c.timeline_end ?? (c as any).end_time ?? 0),
           0
         );
         if (calculatedDur > 0) setDuration(calculatedDur);
@@ -167,6 +167,37 @@ export const SequenceEditorPage: React.FC<SequenceEditorPageProps> = ({
       media_path: (asset as any).file_path || '',
       match_confidence: 100,
       match_reason: 'Manual User Selection',
+    };
+    setTimelineCuts(updated);
+  };
+
+  const handleToggleLock = (cutIndex: number) => {
+    const updated = [...timelineCuts];
+    updated[cutIndex] = {
+      ...updated[cutIndex],
+      locked: !updated[cutIndex].locked,
+    };
+    setTimelineCuts(updated);
+  };
+
+  const handleChangeMotion = (cutIndex: number, motionType: any) => {
+    const updated = [...timelineCuts];
+    updated[cutIndex] = {
+      ...updated[cutIndex],
+      motion: {
+        type: motionType,
+        amount: 0.08,
+      },
+    };
+    setTimelineCuts(updated);
+  };
+
+  const handleChangeSourceTrim = (cutIndex: number, sourceStart: number, sourceEnd: number) => {
+    const updated = [...timelineCuts];
+    updated[cutIndex] = {
+      ...updated[cutIndex],
+      source_start: sourceStart,
+      source_end: sourceEnd,
     };
     setTimelineCuts(updated);
   };
@@ -320,6 +351,9 @@ export const SequenceEditorPage: React.FC<SequenceEditorPageProps> = ({
             currentTime={currentTime}
             onSelectCutTime={handleSeek}
             onAssignMedia={handleAssignMediaToCut}
+            onToggleLock={handleToggleLock}
+            onChangeMotion={handleChangeMotion}
+            onChangeSourceTrim={handleChangeSourceTrim}
           />
         </div>
       </div>

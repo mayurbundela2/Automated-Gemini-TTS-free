@@ -174,9 +174,17 @@ def auto_align_batch_sequence(
         for a in media_assets
     ]
 
+    existing_cuts = []
+    if batch.timeline_data:
+        try:
+            existing_cuts = json.loads(batch.timeline_data)
+        except Exception:
+            existing_cuts = []
+
     timeline_cuts = SequenceAligner.auto_align_sequence(
         paragraphs_data=paras_data,
         media_assets=assets_data,
+        existing_cuts=existing_cuts,
         audio_track_type=track_type
     )
 

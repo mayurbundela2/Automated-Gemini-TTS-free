@@ -7,9 +7,9 @@ from backend.services.audio_converter import AudioConverter
 
 class VideoRenderService:
     """
-    Video Rendering Engine (FFmpeg).
-    Renders timeline visual sequences (images with 1080p letterbox + video clips)
-    synchronized with the full narration audio track into a single master MP4.
+    Advanced 1080p Video Rendering Engine (FFmpeg).
+    Compiles timeline cuts with dynamic Ken Burns motion for images,
+    accurate source trimming for video clips, and audio synchronization.
     """
 
     @classmethod
@@ -18,12 +18,8 @@ class VideoRenderService:
         timeline_cuts: List[Dict[str, Any]],
         audio_path: str,
         output_mp4_path: str,
-        ffmpeg_path: str = "ffmpeg",
-        burn_subtitles_path: Optional[str] = None
+        ffmpeg_path: str = "ffmpeg"
     ) -> Dict[str, Any]:
-        """
-        Compiles the timeline sequence into a 1080p 30fps MP4 video.
-        """
         if not timeline_cuts:
             raise ValueError("Timeline sequence has no visual cuts to render.")
 
@@ -43,20 +39,23 @@ class VideoRenderService:
         segment_mp4s = []
 
         try:
-            # 1. Render individual visual segments
             for idx, cut in enumerate(timeline_cuts):
                 dur = max(0.5, cut.get("duration", 3.0))
                 media_path = cut.get("media_path")
                 media_type = cut.get("media_type") or "image"
+                source_start = float(cut.get("source_start", 0.0))
+                motion_obj = cut.get("motion") or {}
+                motion_type = motion_obj.get("type", "zoom_in") if isinstance(motion_obj, dict) else str(motion_obj)
+
                 seg_out = temp_dir / f"seg_{idx:03d}.mp4"
 
                 if media_path and Path(media_path).exists():
                     if media_type == "video":
-                        # Scale video to 1920x1080, loop or trim to duration, 30fps
+                        # Trim video from source_start with length dur, scaled and padded to 1920x1080
                         vf = "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30"
                         cmd = [
                             ffmpeg_path, "-y",
-                            "-stream_loop", "-1",
+                            "-ss", str(source_start),
                             "-i", str(media_path),
                             "-t", str(dur),
                             "-vf", vf,
@@ -65,8 +64,22 @@ class VideoRenderService:
                             str(seg_out)
                         ]
                     else:
-                        # Image with solid 1080p fit
-                        vf = "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30"
+                        # Image with Ken Burns motion effect
+                        fps = 30
+                        total_frames = int(fps * dur)
+
+                        if motion_type == "zoom_in":
+                            vf = f"scale=2160:1215:force_original_aspect_ratio=increase,crop=2160:1215,zoompan=z='min(zoom+0.0012,1.15)':d={total_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080:fps={fps}"
+                        elif motion_type == "zoom_out":
+                            vf = f"scale=2160:1215:force_original_aspect_ratio=increase,crop=2160:1215,zoompan=z='max(1.15-0.0012*on,1.0)':d={total_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080:fps={fps}"
+                        elif motion_type == "pan_right":
+                            vf = f"scale=2160:1215:force_original_aspect_ratio=increase,crop=2160:1215,zoompan=z=1.08:d={total_frames}:x='if(lte(on,1),0,x+1.2)':y='ih/2-(ih/zoom/2)':s=1920x1080:fps={fps}"
+                        elif motion_type == "pan_left":
+                            vf = f"scale=2160:1215:force_original_aspect_ratio=increase,crop=2160:1215,zoompan=z=1.08:d={total_frames}:x='if(lte(on,1),iw-iw/zoom,x-1.2)':y='ih/2-(ih/zoom/2)':s=1920x1080:fps={fps}"
+                        else:
+                            # Static clean fit
+                            vf = "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30"
+
                         cmd = [
                             ffmpeg_path, "-y",
                             "-loop", "1",
@@ -78,7 +91,7 @@ class VideoRenderService:
                             str(seg_out)
                         ]
                 else:
-                    # Solid dark slate placeholder if no media assigned
+                    # Solid dark slate placeholder
                     cmd = [
                         ffmpeg_path, "-y",
                         "-f", "lavfi", "-i", "color=c=0x0b1322:s=1920x1080:r=30",
@@ -107,7 +120,7 @@ class VideoRenderService:
             ]
             subprocess.run(cmd_concat, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
 
-            # 3. Mux with master/tight audio track
+            # 3. Mux with narration audio
             cmd_final = [
                 ffmpeg_path, "-y",
                 "-i", str(video_track_mp4),
@@ -119,7 +132,8 @@ class VideoRenderService:
             ]
             subprocess.run(cmd_final, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
 
-            info = AudioConverter.get_audio_info(str(out_path))
+            from backend.services.media_service import MediaService
+            info = MediaService.inspect_media_file(str(out_path))
 
             return {
                 "status": "RENDERED",
@@ -130,6 +144,5 @@ class VideoRenderService:
             }
 
         finally:
-            # Clean up temporary segments
             import shutil
             shutil.rmtree(temp_dir, ignore_errors=True)

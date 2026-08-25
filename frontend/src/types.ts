@@ -90,21 +90,34 @@ export interface MediaAsset {
 }
 
 export interface TimelineCut {
+  id?: string;
   scene_index: number;
   paragraph_id?: number;
   paragraph_number: number;
   part_title: string;
   transcript: string;
-  start_time: number;
-  end_time: number;
+  timeline_start: number;
+  timeline_end: number;
   duration: number;
+  source_start?: number;
+  source_end?: number;
   media_asset_id?: number;
   media_filename?: string;
   media_type?: 'image' | 'video';
   media_path?: string;
+  match_score?: number;
   match_confidence?: number;
   match_reason?: string;
-  motion_effect?: 'zoom_in' | 'pan_right' | 'pan_left' | 'static';
+  match_method?: string;
+  locked?: boolean;
+  motion?: {
+    type: 'zoom_in' | 'zoom_out' | 'pan_right' | 'pan_left' | 'static';
+    amount?: number;
+  };
+  transition?: {
+    type: 'cut' | 'crossfade';
+    duration?: number;
+  };
 }
 
 export interface Batch {

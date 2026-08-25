@@ -80,17 +80,23 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
           </div>
           {timelineCuts.map((cut, idx) => {
             const cutWidthPct = (cut.duration / totalDuration) * 100;
+            const cutStart = cut.timeline_start ?? (cut as any).start_time ?? 0;
+            const cutEnd = cut.timeline_end ?? (cut as any).end_time ?? cutStart + cut.duration;
             const assignedAsset = mediaAssets.find((a) => a.id === cut.media_asset_id);
-            const isPlayingCut = currentTime >= cut.start_time && currentTime < cut.end_time;
+            const isPlayingCut = currentTime >= cutStart && currentTime < cutEnd;
 
             return (
               <div
                 key={idx}
                 style={{ width: `${cutWidthPct}%` }}
                 className={`h-full border-r border-[#1F2E4A] relative overflow-hidden flex items-center p-1 transition-all ${
-                  isPlayingCut ? 'ring-2 ring-blue-400 ring-inset bg-blue-900/30' : 'bg-[#15213D]/70'
+                  isPlayingCut
+                    ? 'ring-2 ring-blue-400 ring-inset bg-blue-900/40'
+                    : cut.locked
+                    ? 'bg-amber-950/40 border-amber-500/30'
+                    : 'bg-[#15213D]/70'
                 }`}
-                title={`Scene #${cut.scene_index}: ${cut.media_filename || 'No media'}`}
+                title={`Scene #${cut.scene_index}: ${cut.media_filename || 'No media'}${cut.locked ? ' (LOCKED)' : ''}`}
               >
                 {assignedAsset && (
                   <div className="w-full h-full rounded-md overflow-hidden relative opacity-75">
@@ -102,8 +108,9 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = ({
                     <span className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
                   </div>
                 )}
-                <span className="absolute bottom-1 left-2 text-[10px] font-mono font-extrabold text-white truncate max-w-[90%] drop-shadow">
-                  #{cut.scene_index} {cut.media_filename ? cut.media_filename.split('.')[0] : 'Cut'}
+                <span className="absolute bottom-1 left-2 text-[10px] font-mono font-extrabold text-white truncate max-w-[90%] drop-shadow flex items-center space-x-1">
+                  <span>#{cut.scene_index} {cut.media_filename ? cut.media_filename.split('.')[0] : 'Cut'}</span>
+                  {cut.locked && <span className="text-[9px] text-amber-400">🔒</span>}
                 </span>
               </div>
             );

@@ -28,9 +28,11 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Find active cut at currentTime
-  const activeCut = timelineCuts.find(
-    (cut) => currentTime >= cut.start_time && currentTime < cut.end_time
-  ) || (timelineCuts.length > 0 ? timelineCuts[timelineCuts.length - 1] : null);
+  const activeCut = timelineCuts.find((cut) => {
+    const cutStart = cut.timeline_start ?? (cut as any).start_time ?? 0;
+    const cutEnd = cut.timeline_end ?? (cut as any).end_time ?? cutStart + cut.duration;
+    return currentTime >= cutStart && currentTime < cutEnd;
+  }) || (timelineCuts.length > 0 ? timelineCuts[timelineCuts.length - 1] : null);
 
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60);
@@ -47,6 +49,8 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
       containerRef.current.requestFullscreen();
     }
   };
+
+  const motionType = activeCut?.motion?.type || (activeCut as any)?.motion_effect || 'zoom_in';
 
   return (
     <div className="flex flex-col h-full bg-[#080D1A] overflow-hidden">
@@ -71,7 +75,15 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
                 src={api.getMediaFileUrl(activeCut.media_asset_id)}
                 alt={activeCut.media_filename || 'Scene Visual'}
                 className={`w-full h-full object-contain transition-transform duration-1000 ${
-                  activeCut.motion_effect === 'zoom_in' ? 'scale-105' : 'scale-100'
+                  motionType === 'zoom_in'
+                    ? 'scale-105'
+                    : motionType === 'zoom_out'
+                    ? 'scale-95'
+                    : motionType === 'pan_right'
+                    ? 'translate-x-2'
+                    : motionType === 'pan_left'
+                    ? '-translate-x-2'
+                    : 'scale-100'
                 }`}
               />
             )
@@ -91,11 +103,12 @@ export const VideoPreviewCanvas: React.FC<VideoPreviewCanvasProps> = ({
             </div>
           )}
 
-          {/* Scene Tag Badge */}
+          {/* Scene Tag Badge with Lock Status */}
           {activeCut && (
             <div className="absolute top-4 left-4 px-2.5 py-1 rounded-lg bg-black/75 text-slate-300 text-[11px] font-mono border border-slate-700/80 backdrop-blur flex items-center space-x-1.5 font-bold">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className={`w-2 h-2 rounded-full ${activeCut.locked ? 'bg-amber-400' : 'bg-emerald-400 animate-pulse'}`} />
               <span>{activeCut.part_title || `Scene ${activeCut.scene_index}`}</span>
+              {activeCut.locked && <span className="text-[10px] text-amber-300 ml-1">🔒 LOCKED</span>}
             </div>
           )}
         </div>

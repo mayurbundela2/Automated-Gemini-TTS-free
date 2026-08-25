@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlignLeft, Sparkles, CheckCircle2, AlertCircle, Film, Image as ImageIcon } from 'lucide-react';
+import { AlignLeft, Sparkles, Lock, Unlock, Film, Image as ImageIcon, Sliders, Scissors } from 'lucide-react';
 import { TimelineCut, MediaAsset } from '../../types';
 import { api } from '../../api';
 
@@ -9,6 +9,9 @@ interface ScriptCutsPanelProps {
   currentTime: number;
   onSelectCutTime: (startTime: number) => void;
   onAssignMedia: (cutIndex: number, mediaAssetId: number) => void;
+  onToggleLock: (cutIndex: number) => void;
+  onChangeMotion: (cutIndex: number, motionType: any) => void;
+  onChangeSourceTrim: (cutIndex: number, sourceStart: number, sourceEnd: number) => void;
 }
 
 export const ScriptCutsPanel: React.FC<ScriptCutsPanelProps> = ({
@@ -17,6 +20,9 @@ export const ScriptCutsPanel: React.FC<ScriptCutsPanelProps> = ({
   currentTime,
   onSelectCutTime,
   onAssignMedia,
+  onToggleLock,
+  onChangeMotion,
+  onChangeSourceTrim,
 }) => {
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60);
@@ -34,7 +40,7 @@ export const ScriptCutsPanel: React.FC<ScriptCutsPanelProps> = ({
             <AlignLeft className="w-4 h-4" />
           </div>
           <div>
-            <h3 className="font-extrabold text-xs text-white tracking-wide uppercase">Script & Cuts</h3>
+            <h3 className="font-extrabold text-xs text-white tracking-wide uppercase">Script & Scene Cuts</h3>
             <span className="text-[10px] text-slate-400 font-mono">{timelineCuts.length} scenes</span>
           </div>
         </div>
@@ -43,32 +49,55 @@ export const ScriptCutsPanel: React.FC<ScriptCutsPanelProps> = ({
       {/* Cuts List */}
       <div className="flex-1 p-3 overflow-y-auto space-y-3">
         {timelineCuts.map((cut, idx) => {
-          const isActive = currentTime >= cut.start_time && currentTime < cut.end_time;
+          const cutStart = cut.timeline_start ?? (cut as any).start_time ?? 0;
+          const cutEnd = cut.timeline_end ?? (cut as any).end_time ?? cutStart + cut.duration;
+          const isActive = currentTime >= cutStart && currentTime < cutEnd;
           const assignedAsset = mediaAssets.find((a) => a.id === cut.media_asset_id);
+          const motionType = cut.motion?.type || (cut as any).motion_effect || 'zoom_in';
 
           return (
             <div
               key={idx}
-              onClick={() => onSelectCutTime(cut.start_time)}
+              onClick={() => onSelectCutTime(cutStart)}
               className={`p-3.5 rounded-2xl border transition-all cursor-pointer space-y-2.5 ${
-                isActive
+                cut.locked
+                  ? 'bg-amber-950/20 border-amber-500/40 shadow-sm'
+                  : isActive
                   ? 'bg-blue-900/25 border-blue-500 shadow-lg shadow-blue-500/10 ring-1 ring-blue-500/50'
                   : 'bg-[#121B30] border-slate-800/80 hover:border-slate-700'
               }`}
             >
-              {/* Top Row: Scene Number, Timecodes, Confidence */}
+              {/* Top Row: Scene Number, Timecodes, Lock Button */}
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center space-x-2">
                   <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700">
                     #{cut.scene_index}
                   </span>
-                  <span className="text-xs font-bold text-white truncate max-w-[130px]">
+                  <span className="text-xs font-bold text-white truncate max-w-[120px]">
                     {cut.part_title || `Scene ${cut.scene_index}`}
                   </span>
                 </div>
 
-                <div className="text-[11px] font-mono text-slate-400 font-bold bg-black/40 px-2 py-0.5 rounded-lg border border-slate-800">
-                  {formatTime(cut.start_time)} - {formatTime(cut.end_time)} ({cut.duration}s)
+                <div className="flex items-center space-x-1.5">
+                  <div className="text-[11px] font-mono text-slate-400 font-bold bg-black/40 px-2 py-0.5 rounded-lg border border-slate-800">
+                    {formatTime(cutStart)} - {formatTime(cutEnd)} ({cut.duration}s)
+                  </div>
+
+                  {/* Lock Button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleLock(idx);
+                    }}
+                    className={`p-1 rounded-lg border transition-all ${
+                      cut.locked
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                        : 'text-slate-500 hover:text-slate-300 border-transparent hover:bg-slate-800'
+                    }`}
+                    title={cut.locked ? 'Locked: Auto-align will not overwrite this cut' : 'Unlocked: Click to lock approved visual'}
+                  >
+                    {cut.locked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                  </button>
                 </div>
               </div>
 
@@ -77,7 +106,7 @@ export const ScriptCutsPanel: React.FC<ScriptCutsPanelProps> = ({
                 "{cut.transcript}"
               </p>
 
-              {/* Assigned Media Preview & Selector */}
+              {/* Assigned Media Selector */}
               <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/60">
                 <div className="flex items-center space-x-2 min-w-0 flex-1">
                   {assignedAsset ? (
@@ -121,6 +150,55 @@ export const ScriptCutsPanel: React.FC<ScriptCutsPanelProps> = ({
                     <span>{cut.match_confidence}%</span>
                   </span>
                 ) : null}
+              </div>
+
+              {/* Advanced Motion & Trim Controls */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                {/* Motion Preset Selector */}
+                <div className="flex items-center space-x-1 bg-[#090E1A] border border-slate-800 rounded-lg px-2 py-1">
+                  <Sliders className="w-3 h-3 text-indigo-400 flex-shrink-0" />
+                  <select
+                    value={motionType}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => onChangeMotion(idx, e.target.value)}
+                    className="bg-transparent text-[10px] font-mono text-indigo-200 focus:outline-none w-full"
+                    title="Camera motion animation for this scene"
+                  >
+                    <option value="zoom_in">Zoom In (Ken Burns)</option>
+                    <option value="zoom_out">Zoom Out</option>
+                    <option value="pan_right">Pan Right</option>
+                    <option value="pan_left">Pan Left</option>
+                    <option value="static">Static (No Motion)</option>
+                  </select>
+                </div>
+
+                {/* Video Source In/Out Trim (if video) */}
+                {cut.media_type === 'video' ? (
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex items-center space-x-1 bg-[#090E1A] border border-slate-800 rounded-lg px-2 py-1 text-[10px] font-mono text-slate-300"
+                    title="Source In/Out start point in seconds"
+                  >
+                    <Scissors className="w-3 h-3 text-cyan-400 flex-shrink-0" />
+                    <span className="text-slate-500">In:</span>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={cut.source_start || 0}
+                      onChange={(e) => {
+                        const sStart = parseFloat(e.target.value) || 0;
+                        onChangeSourceTrim(idx, sStart, sStart + cut.duration);
+                      }}
+                      className="w-12 bg-transparent text-cyan-300 focus:outline-none"
+                    />
+                    <span className="text-slate-500">s</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center space-x-1 bg-[#090E1A] border border-slate-800/60 rounded-lg px-2 py-1 text-[10px] font-mono text-slate-500">
+                    <span>Duration: {cut.duration}s</span>
+                  </div>
+                )}
               </div>
             </div>
           );
