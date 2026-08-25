@@ -9,6 +9,7 @@ import { ParagraphCard } from '../components/ParagraphCard';
 import { ReferenceImporter } from '../components/ReferenceImporter';
 import { GenerationProgress } from '../components/GenerationProgress';
 import { SequenceEditorPage } from './SequenceEditorPage';
+import { SequencerView } from '../components/sequencer/SequencerView';
 import { api } from '../api';
 
 interface BatchPageProps {
@@ -28,6 +29,7 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
   const [showNewBatchModal, setShowNewBatchModal] = useState(false);
   const [newBatchName, setNewBatchName] = useState('');
   const [showSequenceEditor, setShowSequenceEditor] = useState(false);
+  const [showVisualSequencer, setShowVisualSequencer] = useState(false);
   
   // Batch generation status
   const [generatingAll, setGeneratingAll] = useState(false);
@@ -234,6 +236,19 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
     }
   };
 
+  if (showVisualSequencer && currentBatch) {
+    return (
+      <SequencerView
+        project={project}
+        batch={currentBatch}
+        onBack={() => {
+          setShowVisualSequencer(false);
+          fetchCurrentBatch();
+        }}
+      />
+    );
+  }
+
   if (showSequenceEditor && currentBatch) {
     return (
       <SequenceEditorPage
@@ -372,12 +387,21 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
               {currentBatch.completed_count > 1 && (
                 <>
                   <button
-                    onClick={() => setShowSequenceEditor(true)}
+                    onClick={() => setShowVisualSequencer(true)}
                     className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white text-xs font-black shadow-lg shadow-emerald-600/30 transition-all active:scale-95 animate-pulse hover:animate-none"
-                    title="Open Visual Sequence Editor to align images/videos with narration timeline"
+                    title="Open Visual Sequencer to auto-match files from assets folder and compose full_batch_final.mp4"
                   >
                     <Film className="w-4 h-4" />
-                    <span>🎬 OPEN SEQUENCE & VIDEO EDITOR</span>
+                    <span>🎬 VISUAL SEQUENCER</span>
+                  </button>
+
+                  <button
+                    onClick={() => setShowSequenceEditor(true)}
+                    className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition-all shadow"
+                    title="Open 3-Panel Timeline Editor"
+                  >
+                    <Sparkles className="w-4 h-4 text-indigo-400" />
+                    <span>3-PANEL EDITOR</span>
                   </button>
 
                   <button

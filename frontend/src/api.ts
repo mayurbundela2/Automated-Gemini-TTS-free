@@ -382,6 +382,79 @@ export const api = {
     return res.json();
   },
 
+  // Visual Sequencer Spec APIs
+  async getBatchVisualSequence(batchId: number): Promise<any> {
+    const res = await fetch(`${API_BASE}/batches/${batchId}/sequence`);
+    if (!res.ok) throw new Error('Failed to fetch visual sequence');
+    return res.json();
+  },
+
+  async autoMatchBatchAssets(batchId: number): Promise<any> {
+    const res = await fetch(`${API_BASE}/batches/${batchId}/sequence/auto-match`, {
+      method: 'POST',
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Auto-matching assets failed');
+    }
+    return res.json();
+  },
+
+  async updateBatchSequenceOrder(batchId: number, assets: any[]): Promise<any> {
+    const res = await fetch(`${API_BASE}/batches/${batchId}/sequence`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assets }),
+    });
+    if (!res.ok) throw new Error('Failed to save sequence order');
+    return res.json();
+  },
+
+  async uploadParagraphAsset(batchId: number, paragraphId: number, file: File): Promise<any> {
+    const formData = new FormData();
+    formData.append('paragraph_id', paragraphId.toString());
+    formData.append('file', file);
+    const res = await fetch(`${API_BASE}/batches/${batchId}/sequence/assets`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to upload asset for paragraph');
+    }
+    return res.json();
+  },
+
+  async deleteSceneAsset(batchId: number, assetId: number): Promise<any> {
+    const res = await fetch(`${API_BASE}/batches/${batchId}/sequence/assets/${assetId}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error('Failed to delete scene asset');
+    return res.json();
+  },
+
+  async composeFinalVideo(batchId: number, burnSubtitles: boolean = true): Promise<any> {
+    const res = await fetch(`${API_BASE}/batches/${batchId}/sequence/compose-video?burn_subtitles=${burnSubtitles}`, {
+      method: 'POST',
+    });
+    if (!res.ok) {
+      let msg = 'Failed to compose final video';
+      try {
+        const err = await res.json();
+        msg = err.detail || msg;
+      } catch {
+        const text = await res.text();
+        msg = text || msg;
+      }
+      throw new Error(msg);
+    }
+    return res.json();
+  },
+
+  getComposedVideoUrl(batchId: number, download = false): string {
+    return `${API_BASE}/batches/${batchId}/sequence/composed-video${download ? '?download=true' : ''}`;
+  },
+
   getRenderedVideoUrl(batchId: number, download = false): string {
     return `${API_BASE}/batches/${batchId}/rendered-video${download ? '?download=true' : ''}`;
   }

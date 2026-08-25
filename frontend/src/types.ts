@@ -89,6 +89,37 @@ export interface MediaAsset {
   url: string;
 }
 
+export interface SceneAsset {
+  id: number;
+  paragraph_id: number;
+  filename: string;
+  file_path: string;
+  asset_type: 'photo' | 'video';
+  order_index: number;
+  sequence_index: number;
+  duration_override_ms?: number;
+  matched_automatically: boolean;
+  url: string;
+}
+
+export interface SequenceSegment {
+  paragraph_id: number;
+  paragraph_number: number;
+  part_title: string;
+  subtitle_text: string;
+  start_ms: number;
+  end_ms: number;
+  duration_ms: number;
+  assets: SceneAsset[];
+}
+
+export interface BatchSequenceResponse {
+  batch_id: number;
+  tight_duration_ms: number;
+  total_paragraphs: number;
+  segments: SequenceSegment[];
+}
+
 export interface TimelineCut {
   id?: string;
   scene_index: number;

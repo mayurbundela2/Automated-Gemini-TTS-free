@@ -13,6 +13,7 @@ from backend.routers.generations import router as generations_router
 from backend.routers.settings import router as settings_router
 from backend.routers.voices import voices_router, system_router
 from backend.routers.sequences import router as sequences_router
+from backend.routers.sequence import router as sequence_router, asset_stream_router
 
 # Initialize database tables and migrations
 init_db()
@@ -41,6 +42,8 @@ app.include_router(settings_router)
 app.include_router(voices_router)
 app.include_router(system_router)
 app.include_router(sequences_router)
+app.include_router(sequence_router)
+app.include_router(asset_stream_router)
 
 # Mount frontend static distribution if available
 FRONTEND_DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
