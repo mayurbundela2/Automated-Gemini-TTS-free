@@ -76,81 +76,6 @@ export interface Paragraph {
   latest_generation?: Generation;
 }
 
-export interface MediaAsset {
-  id: number;
-  filename: string;
-  file_type: 'image' | 'video';
-  duration?: number;
-  width?: number;
-  height?: number;
-  size_bytes?: number;
-  tags?: string;
-  created_at?: string;
-  url: string;
-}
-
-export interface SceneAsset {
-  id: number;
-  paragraph_id: number;
-  filename: string;
-  file_path: string;
-  asset_type: 'photo' | 'video';
-  order_index: number;
-  sequence_index: number;
-  duration_override_ms?: number;
-  matched_automatically: boolean;
-  url: string;
-}
-
-export interface SequenceSegment {
-  paragraph_id: number;
-  paragraph_number: number;
-  part_title: string;
-  subtitle_text: string;
-  start_ms: number;
-  end_ms: number;
-  duration_ms: number;
-  assets: SceneAsset[];
-}
-
-export interface BatchSequenceResponse {
-  batch_id: number;
-  tight_duration_ms: number;
-  total_paragraphs: number;
-  segments: SequenceSegment[];
-}
-
-export interface TimelineCut {
-  id?: string;
-  scene_index: number;
-  paragraph_id?: number;
-  paragraph_number: number;
-  part_title: string;
-  transcript: string;
-  timeline_start: number;
-  timeline_end: number;
-  duration: number;
-  source_start?: number;
-  source_end?: number;
-  media_asset_id?: number;
-  media_filename?: string;
-  media_type?: 'image' | 'video';
-  media_path?: string;
-  match_score?: number;
-  match_confidence?: number;
-  match_reason?: string;
-  match_method?: string;
-  locked?: boolean;
-  motion?: {
-    type: 'zoom_in' | 'zoom_out' | 'pan_right' | 'pan_left' | 'static';
-    amount?: number;
-  };
-  transition?: {
-    type: 'cut' | 'crossfade';
-    duration?: number;
-  };
-}
-
 export interface Batch {
   id: number;
   project_id: number;
@@ -179,8 +104,6 @@ export interface Batch {
     duration: number;
     waveform?: WaveformData;
   };
-  rendered_video_path?: string;
-  timeline_data?: string;
 }
 
 export interface VoiceItem {

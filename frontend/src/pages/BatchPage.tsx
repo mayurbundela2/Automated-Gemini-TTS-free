@@ -8,8 +8,6 @@ import { Project, Batch, VoiceItem } from '../types';
 import { ParagraphCard } from '../components/ParagraphCard';
 import { ReferenceImporter } from '../components/ReferenceImporter';
 import { GenerationProgress } from '../components/GenerationProgress';
-import { SequenceEditorPage } from './SequenceEditorPage';
-import { SequencerView } from '../components/sequencer/SequencerView';
 import { api } from '../api';
 
 interface BatchPageProps {
@@ -28,8 +26,6 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
   const [showImporter, setShowImporter] = useState(false);
   const [showNewBatchModal, setShowNewBatchModal] = useState(false);
   const [newBatchName, setNewBatchName] = useState('');
-  const [showSequenceEditor, setShowSequenceEditor] = useState(false);
-  const [showVisualSequencer, setShowVisualSequencer] = useState(false);
   
   // Batch generation status
   const [generatingAll, setGeneratingAll] = useState(false);
@@ -236,35 +232,9 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
     }
   };
 
-  if (showVisualSequencer && currentBatch) {
-    return (
-      <SequencerView
-        project={project}
-        batch={currentBatch}
-        onBack={() => {
-          setShowVisualSequencer(false);
-          fetchCurrentBatch();
-        }}
-      />
-    );
-  }
-
-  if (showSequenceEditor && currentBatch) {
-    return (
-      <SequenceEditorPage
-        project={project}
-        batch={currentBatch}
-        onBack={() => {
-          setShowSequenceEditor(false);
-          fetchCurrentBatch();
-        }}
-      />
-    );
-  }
-
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      {/* Top Header with Project Info */}
+    <div className="max-w-7xl mx-auto px-6 py-8 space-y-6 animate-fadeIn">
+      {/* Top Breadcrumb & Project Header */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-4 border-b border-studio-cardBorder">
         <div className="flex items-center space-x-3">
           <button
@@ -385,44 +355,24 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
               </button>
 
               {currentBatch.completed_count > 1 && (
-                <>
-                  <button
-                    onClick={() => setShowVisualSequencer(true)}
-                    className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white text-xs font-black shadow-lg shadow-emerald-600/30 transition-all active:scale-95 animate-pulse hover:animate-none"
-                    title="Open Visual Sequencer to auto-match files from assets folder and compose full_batch_final.mp4"
-                  >
-                    <Film className="w-4 h-4" />
-                    <span>🎬 VISUAL SEQUENCER</span>
-                  </button>
-
-                  <button
-                    onClick={() => setShowSequenceEditor(true)}
-                    className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition-all shadow"
-                    title="Open 3-Panel Timeline Editor"
-                  >
-                    <Sparkles className="w-4 h-4 text-indigo-400" />
-                    <span>3-PANEL EDITOR</span>
-                  </button>
-
-                  <button
-                    onClick={handleRebuildAll}
-                    disabled={rebuilding}
-                    className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white text-xs font-extrabold shadow-lg shadow-indigo-600/30 transition-all active:scale-95"
-                    title="Rebuilds both Full Batch Narration and No-Pause Timeline MP4 using current paragraph audios"
-                  >
-                    {rebuilding ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>REBUILDING NARRATION...</span>
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="w-4 h-4" />
-                        <span>REBUILD FULL NARRATION & MP4</span>
-                      </>
-                    )}
-                  </button>
-                </>
+                <button
+                  onClick={handleRebuildAll}
+                  disabled={rebuilding}
+                  className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white text-xs font-extrabold shadow-lg shadow-indigo-600/30 transition-all active:scale-95"
+                  title="Rebuilds both Full Batch Narration and No-Pause Timeline MP4 using current paragraph audios"
+                >
+                  {rebuilding ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>REBUILDING NARRATION...</span>
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4" />
+                      <span>REBUILD FULL NARRATION & MP4</span>
+                    </>
+                  )}
+                </button>
               )}
 
               <button

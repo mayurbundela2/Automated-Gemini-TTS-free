@@ -17,7 +17,6 @@ Base = declarative_base()
 
 
 def init_db():
-    import backend.models  # Ensure all model classes are registered
     Base.metadata.create_all(bind=engine)
     # Check and add new columns if existing SQLite DB
     import sqlite3
@@ -42,10 +41,6 @@ def init_db():
                 cursor.execute("ALTER TABLE batches ADD COLUMN tight_mp4_path VARCHAR(500)")
             if "tight_duration" not in columns:
                 cursor.execute("ALTER TABLE batches ADD COLUMN tight_duration FLOAT")
-            if "timeline_data" not in columns:
-                cursor.execute("ALTER TABLE batches ADD COLUMN timeline_data TEXT")
-            if "rendered_video_path" not in columns:
-                cursor.execute("ALTER TABLE batches ADD COLUMN rendered_video_path VARCHAR(500)")
             conn.commit()
         except Exception as e:
             print(f"[DB] Migration note: {e}")
