@@ -97,16 +97,27 @@ class CompositorService:
                             ]
                             subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
                         elif asset_type == "video":
-                            # Video asset: Inspect duration
+                            # Video asset: Inspect duration & calculate setpts speed factor
                             vmeta = MediaService.inspect_media_file(file_path, ffmpeg_path=ffmpeg_path)
                             source_dur = vmeta.get("duration", 0.0)
 
-                            if source_dur > 0 and source_dur < asset_dur:
-                                # Shorter video: Freeze last frame to fill remainder
-                                deficit = asset_dur - source_dur
-                                vf = f"scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30,tpad=stop_mode=clone:stop_duration={deficit}"
+                            scale_pad = "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30"
+
+                            if source_dur > 0:
+                                ratio = asset_dur / source_dur
+                                if 0.5 <= ratio <= 2.0:
+                                    # Perfect time-stretch to fill exact segment duration
+                                    vf = f"setpts={ratio:.4f}*PTS,{scale_pad}"
+                                elif ratio > 2.0:
+                                    # Very short clip: clamp to 2x slowdown and freeze last frame
+                                    slowed_dur = source_dur * 2.0
+                                    deficit = max(0.1, asset_dur - slowed_dur)
+                                    vf = f"setpts=2.0*PTS,{scale_pad},tpad=stop_mode=clone:stop_duration={deficit:.3f}"
+                                else:
+                                    # Very long clip: clamp to 0.5x speedup and straight cut
+                                    vf = f"setpts=0.5*PTS,{scale_pad}"
                             else:
-                                vf = "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30"
+                                vf = scale_pad
 
                             cmd = [
                                 ffmpeg_path, "-y",
