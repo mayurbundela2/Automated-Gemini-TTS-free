@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -41,7 +42,12 @@ app.include_router(voices_router)
 app.include_router(system_router)
 
 # Mount frontend static distribution if available
-FRONTEND_DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+    BASE_DIR = Path(sys._MEIPASS)
+else:
+    BASE_DIR = Path(__file__).resolve().parent.parent
+
+FRONTEND_DIST_DIR = BASE_DIR / "frontend" / "dist"
 
 if FRONTEND_DIST_DIR.exists():
     app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST_DIR / "assets")), name="static_assets")
