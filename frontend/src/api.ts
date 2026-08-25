@@ -305,5 +305,84 @@ export const api = {
   async deleteGeneration(id: number): Promise<void> {
     const res = await fetch(`${API_BASE}/generations/${id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('Failed to delete generation');
+  },
+
+  // Media & Video Sequence Editor
+  async uploadBatchMedia(batchId: number, files: File[]): Promise<{ uploaded_count: number; assets: any[] }> {
+    const formData = new FormData();
+    files.forEach((f) => formData.append('files', f));
+    const res = await fetch(`${API_BASE}/batches/${batchId}/media/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to upload media files');
+    }
+    return res.json();
+  },
+
+  async listBatchMedia(batchId: number): Promise<any[]> {
+    const res = await fetch(`${API_BASE}/batches/${batchId}/media`);
+    if (!res.ok) throw new Error('Failed to fetch media assets');
+    return res.json();
+  },
+
+  async deleteMediaAsset(assetId: number): Promise<void> {
+    const res = await fetch(`${API_BASE}/media/${assetId}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Failed to delete media asset');
+  },
+
+  getMediaFileUrl(assetId: number): string {
+    return `${API_BASE}/media/${assetId}/file`;
+  },
+
+  async autoAlignBatchSequence(batchId: number, trackType: 'master' | 'tight' = 'master'): Promise<any> {
+    const res = await fetch(`${API_BASE}/batches/${batchId}/sequence/auto-align?track_type=${trackType}`, {
+      method: 'POST',
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to auto-align visual sequence');
+    }
+    return res.json();
+  },
+
+  async getBatchSequence(batchId: number): Promise<any> {
+    const res = await fetch(`${API_BASE}/batches/${batchId}/sequence`);
+    if (!res.ok) throw new Error('Failed to fetch sequence');
+    return res.json();
+  },
+
+  async updateBatchSequence(batchId: number, cuts: any[]): Promise<any> {
+    const res = await fetch(`${API_BASE}/batches/${batchId}/sequence`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ timeline_cuts: cuts }),
+    });
+    if (!res.ok) throw new Error('Failed to save sequence adjustments');
+    return res.json();
+  },
+
+  async renderTimelineVideo(batchId: number, trackType: 'master' | 'tight' = 'tight'): Promise<any> {
+    const res = await fetch(`${API_BASE}/batches/${batchId}/render-video?track_type=${trackType}`, {
+      method: 'POST',
+    });
+    if (!res.ok) {
+      let msg = 'Failed to render 1080p video';
+      try {
+        const err = await res.json();
+        msg = err.detail || msg;
+      } catch {
+        const text = await res.text();
+        msg = text || msg;
+      }
+      throw new Error(msg);
+    }
+    return res.json();
+  },
+
+  getRenderedVideoUrl(batchId: number, download = false): string {
+    return `${API_BASE}/batches/${batchId}/rendered-video${download ? '?download=true' : ''}`;
   }
 };

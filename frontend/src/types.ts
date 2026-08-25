@@ -76,6 +76,37 @@ export interface Paragraph {
   latest_generation?: Generation;
 }
 
+export interface MediaAsset {
+  id: number;
+  filename: string;
+  file_type: 'image' | 'video';
+  duration?: number;
+  width?: number;
+  height?: number;
+  size_bytes?: number;
+  tags?: string;
+  created_at?: string;
+  url: string;
+}
+
+export interface TimelineCut {
+  scene_index: number;
+  paragraph_id?: number;
+  paragraph_number: number;
+  part_title: string;
+  transcript: string;
+  start_time: number;
+  end_time: number;
+  duration: number;
+  media_asset_id?: number;
+  media_filename?: string;
+  media_type?: 'image' | 'video';
+  media_path?: string;
+  match_confidence?: number;
+  match_reason?: string;
+  motion_effect?: 'zoom_in' | 'pan_right' | 'pan_left' | 'static';
+}
+
 export interface Batch {
   id: number;
   project_id: number;
@@ -104,6 +135,8 @@ export interface Batch {
     duration: number;
     waveform?: WaveformData;
   };
+  rendered_video_path?: string;
+  timeline_data?: string;
 }
 
 export interface VoiceItem {

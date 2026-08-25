@@ -36,11 +36,33 @@ class Batch(Base):
     tight_mp3_path = Column(String(500), nullable=True)
     tight_mp4_path = Column(String(500), nullable=True)
     tight_duration = Column(Float, nullable=True)
+    timeline_data = Column(Text, nullable=True)  # JSON serialized timeline visual cuts
+    rendered_video_path = Column(String(500), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utc_now)
     updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
     project = relationship("Project", back_populates="batches")
     paragraphs = relationship("Paragraph", back_populates="batch", cascade="all, delete-orphan", order_by="Paragraph.paragraph_number, Paragraph.part_number")
+    media_assets = relationship("MediaAsset", back_populates="batch", cascade="all, delete-orphan", order_by="desc(MediaAsset.created_at)")
+
+
+class MediaAsset(Base):
+    __tablename__ = "media_assets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    batch_id = Column(Integer, ForeignKey("batches.id", ondelete="CASCADE"), nullable=False)
+    filename = Column(String(255), nullable=False)
+    file_path = Column(String(500), nullable=False)
+    file_type = Column(String(50), nullable=False)  # image, video
+    mime_type = Column(String(100), nullable=True)
+    duration = Column(Float, nullable=True)  # for video clips
+    width = Column(Integer, nullable=True)
+    height = Column(Integer, nullable=True)
+    size_bytes = Column(Integer, nullable=True)
+    tags = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utc_now)
+
+    batch = relationship("Batch", back_populates="media_assets")
 
 
 class Paragraph(Base):
