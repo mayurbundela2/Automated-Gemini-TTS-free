@@ -37,7 +37,7 @@ export const App: React.FC = () => {
         selectedProjectName={selectedProject?.name}
       />
 
-      <main className="flex-1 pb-16">
+      <main className="flex-1 pb-28 sm:pb-16">
         {currentTab === 'projects' && (
           <Dashboard onSelectProject={handleSelectProject} />
         )}

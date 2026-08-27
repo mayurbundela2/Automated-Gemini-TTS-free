@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { FileDown, Sparkles, Check, X, AlertTriangle, ArrowRight, Eye } from 'lucide-react';
+import { FileDown, Sparkles, Check, X, AlertTriangle, ArrowRight, Eye, Lightbulb, Copy } from 'lucide-react';
 import { api } from '../api';
+import { PromptHelpModal, AI_DIRECTOR_PROMPT } from './PromptHelpModal';
 
 interface ReferenceImporterProps {
   batchId: number;
@@ -20,48 +21,49 @@ export const ReferenceImporter: React.FC<ReferenceImporterProps> = ({
   const [parsedData, setParsedData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPromptHelp, setShowPromptHelp] = useState(false);
 
-  const sampleReference = `Here is the breakdown for Batch 1...
-
-### Part 1: COLD OPEN — The Riddle
-
+  const sampleReference = `Part 1: HOOK [0:00–0:11]
 Playground Setup:
-
-- Scene: "A dimly lit room with an investigative board in the background, papers and red strings everywhere."
-- Sample Context: "Gripping cold open hook, serious mystery tone."
-- Audio Profile: "Deep, investigative, and authoritative Indian documentary YouTuber."
-- Style: Newscaster
-- Pace: Natural
-- Accent: Neutral
-- Voice: Algenib
+- Scene: "A dramatic silhouette of Lord Shiva in meditation with rising smoke, shattering common myths."
+- Sample Context: "The narrator asks a bold, provocative question to instantly stop the viewer from scrolling."
+- Audio Profile: "Deep, bold, and mysterious Indian documentary YouTuber."
+- Style: Newscaster | Pace: Rapid Fire | Accent: Neutral | Voice: Algenib
 
 Formatted Script to Copy-Paste:
+[serious] [probing]
+Kya Shiva ne... sach mein bhang piya tha?
 
-[serious] [mysterious]
+[authoritative] [mysterious]
+Sirf ek myth nahi hai... iske peechhe ek teen hazaar saal purani... real kahani hai!
 
-Ek sawaal...
-
-[thoughtful] [curious]
-
-Pichle baarah hazaar saalon mein insaan ne aisi kaunsi cheez khoji hai jo pehle aam thi aur aaj illegal hai?
-
-### Part 2: THE ANCIENT ROOTS
-
+Part 2: SETUP & CONTEXT [0:11–0:26]
 Playground Setup:
-
-- Scene: "Ancient Harappan civilization ruins and cave paintings."
-- Sample Context: "Historical narration with awe and depth."
-- Audio Profile: "Historical scholar, rich tone."
-- Style: Conversational
-- Pace: Slow
-- Accent: Neutral
-- Voice: Aoede
+- Scene: "Ancient Ayurvedic texts and mountain herbs glowing with mystical light."
+- Sample Context: "Explaining the mythological context with authoritative depth."
+- Audio Profile: "Deep, bold, and mysterious Indian documentary YouTuber."
+- Style: Serious | Pace: Natural | Accent: Neutral | Voice: Algenib
 
 Formatted Script to Copy-Paste:
+[authoritative] [epic]
+Puranon ke anusaar... jab Samudra Manthan ke dauraan Halahala vish nikla...
 
-[reflective] [authoritative]
+[intense] [dramatic]
+Toh sansaar ko bachane ke liye... Lord Shiva ne use apne gale mein dharan kar liya!
 
-Himalaya ki vaadiyon se lekar Atharvaveda ke pannon tak, yeh paudha har jagah maujood tha.`;
+Part 3: THE TWIST [0:26–0:42]
+Playground Setup:
+- Scene: "Close up of ancient medicinal formulations and cooling herbs."
+- Sample Context: "Revealing the biological and medical truth."
+- Audio Profile: "Deep, bold, and mysterious Indian documentary YouTuber."
+- Style: Conversational | Pace: Rapid Fire | Accent: Neutral | Voice: Algenib
+
+Formatted Script to Copy-Paste:
+[amazed] [punchy]
+Aur us agni jaise vish ki jalan ko shant karne ke liye...
+
+[authoritative] [revelation]
+Ayurveda ke anusaar cannabis ko ek cooling medicinal herb ki tarah use kiya gaya tha!`;
 
   const handleParse = async () => {
     if (!rawText.trim()) {
@@ -100,63 +102,84 @@ Himalaya ki vaadiyon se lekar Atharvaveda ke pannon tak, yeh paudha har jagah ma
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
-      <div className="bg-[#101827] border border-[#20304C] rounded-2xl w-full max-w-4xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
-        {/* Modal Header */}
-        <div className="px-6 py-4 border-b border-studio-cardBorder flex items-center justify-between bg-[#152037]">
-          <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center">
-              <FileDown className="w-4 h-4" />
+    <>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+        <div className="bg-[#101827] border border-[#20304C] rounded-2xl w-full max-w-4xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+          {/* Modal Header */}
+          <div className="px-6 py-4 border-b border-studio-cardBorder flex items-center justify-between bg-[#152037]">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center">
+                <FileDown className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-white">IMPORT AI STUDIO REFERENCE</h3>
+                <p className="text-xs text-studio-textMuted">
+                  {step === 'paste' ? 'Step 1: Paste markdown or structured script' : 'Step 2: Inspect parsed paragraphs before importing'}
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 className="font-bold text-sm text-white">IMPORT AI STUDIO REFERENCE</h3>
-              <p className="text-xs text-studio-textMuted">
-                {step === 'paste' ? 'Step 1: Paste markdown or structured script' : 'Step 2: Inspect parsed paragraphs before importing'}
-              </p>
+
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={() => setShowPromptHelp(true)}
+                className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-semibold transition-all"
+              >
+                <Lightbulb className="w-3.5 h-3.5 text-indigo-400" />
+                <span>AI DIRECTOR PROMPT</span>
+              </button>
+
+              <button
+                onClick={onClose}
+                className="p-1.5 rounded-lg text-studio-textMuted hover:text-white hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-studio-textMuted hover:text-white hover:bg-slate-800 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Modal Body */}
-        <div className="p-6 overflow-y-auto flex-1 space-y-4">
-          {error && (
-            <div className="bg-rose-500/10 border border-rose-500/30 text-rose-400 p-3 rounded-xl text-xs flex items-center space-x-2">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          {step === 'paste' ? (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-studio-textLight">
-                  Paste Batch Reference / Breakdown:
-                </span>
-                <button
-                  type="button"
-                  onClick={loadSample}
-                  className="text-xs text-blue-400 hover:text-blue-300 underline font-medium"
-                >
-                  Load 4-Paragraph Sample
-                </button>
+          {/* Modal Body */}
+          <div className="p-6 overflow-y-auto flex-1 space-y-4">
+            {error && (
+              <div className="bg-rose-500/10 border border-rose-500/30 text-rose-400 p-3 rounded-xl text-xs flex items-center space-x-2">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                <span>{error}</span>
               </div>
+            )}
 
-              <textarea
-                value={rawText}
-                onChange={(e) => setRawText(e.target.value)}
-                rows={14}
-                className="w-full bg-[#0B101B] border border-studio-cardBorder focus:border-blue-500 rounded-xl p-4 text-xs font-mono text-slate-200 focus:outline-none resize-none leading-relaxed"
-                placeholder="Paste AI Studio breakdown here (Scene, Sample Context, Audio Profile, Style, Pace, Voice, Formatted Script to Copy-Paste)..."
-              />
-            </div>
-          ) : (
+            {step === 'paste' ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-studio-textLight">
+                    Paste Batch Reference / Breakdown:
+                  </span>
+                  <div className="flex items-center space-x-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowPromptHelp(true)}
+                      className="text-xs text-indigo-400 hover:text-indigo-300 underline font-medium flex items-center space-x-1"
+                    >
+                      <span>How to generate script?</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={loadSample}
+                      className="text-xs text-blue-400 hover:text-blue-300 underline font-medium"
+                    >
+                      Load Shiva Reference Sample
+                    </button>
+                  </div>
+                </div>
+
+                <textarea
+                  value={rawText}
+                  onChange={(e) => setRawText(e.target.value)}
+                  rows={14}
+                  className="w-full bg-[#0B101B] border border-studio-cardBorder focus:border-blue-500 rounded-xl p-4 text-xs font-mono text-slate-200 focus:outline-none resize-none leading-relaxed"
+                  placeholder="Paste AI Studio breakdown here (Scene, Sample Context, Audio Profile, Style, Pace, Voice, Formatted Script to Copy-Paste)..."
+                />
+              </div>
+            ) : (
             <div className="space-y-4">
               <div className="flex items-center justify-between bg-blue-500/10 border border-blue-500/20 p-3 rounded-xl text-xs text-blue-300">
                 <span className="font-semibold">
@@ -242,5 +265,9 @@ Himalaya ki vaadiyon se lekar Atharvaveda ke pannon tak, yeh paudha har jagah ma
         </div>
       </div>
     </div>
+
+    {/* AI Director Prompt Guide Modal */}
+    <PromptHelpModal isOpen={showPromptHelp} onClose={() => setShowPromptHelp(false)} />
+    </>
   );
 };

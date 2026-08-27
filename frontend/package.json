@@ -5,7 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "vite build",
+    "build:check": "tsc && vite build",
+    "build:fast": "vite build",
+    "sync:android": "vite build && cap copy android",
+    "build:apk": "vite build && cap copy android && cd android && ./gradlew assembleDebug --parallel --build-cache && cd .. && cp android/app/build/outputs/apk/debug/app-debug.apk Automated-Gemini-TTS.apk",
+    "build:install": "npm run build:apk && adb install -r Automated-Gemini-TTS.apk",
     "preview": "vite preview"
   },
   "dependencies": {

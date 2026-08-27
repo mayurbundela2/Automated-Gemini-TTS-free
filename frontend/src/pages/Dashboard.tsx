@@ -130,18 +130,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectProject }) => {
           {projects.map((proj) => (
             <div
               key={proj.id}
+              role="button"
+              tabIndex={0}
               onClick={() => onSelectProject(proj)}
-              className="group bg-[#111A2D] hover:bg-[#15223B] border border-studio-cardBorder hover:border-blue-500/40 rounded-2xl p-6 shadow-xl transition-all cursor-pointer flex flex-col justify-between space-y-5 relative"
+              className="group bg-gradient-to-br from-[#111A2D] to-[#142036] hover:from-[#15223B] hover:to-[#182845] border border-studio-cardBorder hover:border-blue-500/50 rounded-2xl p-5 sm:p-6 shadow-xl transition-all active:scale-[0.98] cursor-pointer flex flex-col justify-between space-y-4 relative select-none"
             >
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <div className="w-10 h-10 rounded-xl bg-blue-500/15 text-blue-400 flex items-center justify-center border border-blue-500/20 group-hover:scale-105 transition-transform shadow-sm">
                     <FolderKanban className="w-5 h-5" />
                   </div>
 
                   <button
                     onClick={(e) => handleDelete(proj.id, e)}
-                    className="p-1.5 rounded-lg text-studio-textMuted hover:text-rose-400 hover:bg-rose-500/10 transition-colors opacity-0 group-hover:opacity-100"
+                    className="p-2 rounded-lg text-studio-textMuted hover:text-rose-400 hover:bg-rose-500/15 transition-all"
                     title="Delete project"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -159,11 +161,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ onSelectProject }) => {
               </div>
 
               {/* Stats Footer */}
-              <div className="pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs font-mono text-studio-textMuted">
-                <div className="flex items-center space-x-3">
-                  <span><strong>{proj.batch_count}</strong> Batches</span>
-                  <span>&bull;</span>
-                  <span><strong>{proj.paragraph_count}</strong> Paras</span>
+              <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs font-mono text-studio-textMuted">
+                <div className="flex items-center space-x-2.5">
+                  <span className="bg-slate-800/80 px-2 py-0.5 rounded text-[11px]"><strong>{proj.batch_count}</strong> Batches</span>
+                  <span className="bg-slate-800/80 px-2 py-0.5 rounded text-[11px]"><strong>{proj.paragraph_count}</strong> Paras</span>
                 </div>
 
                 <div className="flex items-center space-x-1 text-blue-400 font-semibold group-hover:translate-x-1 transition-transform">

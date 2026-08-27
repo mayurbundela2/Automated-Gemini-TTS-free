@@ -63,6 +63,7 @@ htmlcov/
 
 # Logs & Temporary Files
 *.log
+*.png
 .system_generated/
 .tempmediaStorage/
 .DS_Store

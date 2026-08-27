@@ -40,22 +40,22 @@ export const LimitIndicator: React.FC<LimitIndicatorProps> = ({
   }
 
   return (
-    <div className="flex flex-col space-y-1.5 min-w-[200px]">
-      <div className="flex items-center justify-between text-xs">
-        <div className="flex items-center space-x-3 text-studio-textMuted font-mono">
-          <span>Words: <strong className="text-white font-semibold">{words}</strong>/{effectiveMaxWords}</span>
-          <span className="text-studio-cardBorder">|</span>
-          <span>Chars: <strong className="text-white font-semibold">{characters}</strong>/{effectiveMaxChars}</span>
+    <div className="flex flex-col space-y-1 sm:min-w-[180px]">
+      <div className="flex items-center justify-end sm:justify-between text-xs gap-2">
+        <div className="hidden sm:flex items-center space-x-2 text-studio-textMuted font-mono text-[11px]">
+          <span>{words}/{effectiveMaxWords}w</span>
+          <span className="text-slate-700">&bull;</span>
+          <span>{characters}/{effectiveMaxChars}c</span>
         </div>
 
-        <div className={`px-2 py-0.5 rounded-full border text-[11px] font-bold tracking-wider flex items-center space-x-1 uppercase ${badgeColor}`}>
+        <div className={`px-2 py-0.5 rounded-full border text-[10px] font-bold tracking-wider flex items-center space-x-1 uppercase ${badgeColor}`}>
           <Icon className="w-3 h-3" />
-          <span>{status.replace('_', ' ')}</span>
+          <span className="hidden xs:inline">{status.replace('_', ' ')}</span>
         </div>
       </div>
 
       {/* Progress Bar */}
-      <div className="w-full bg-[#1E293B] h-1.5 rounded-full overflow-hidden">
+      <div className="hidden sm:block w-full bg-[#1E293B] h-1 rounded-full overflow-hidden">
         <div 
           className={`h-full rounded-full transition-all duration-300 ${barColor}`} 
           style={{ width: `${Math.max(4, maxPercent)}%` }} 

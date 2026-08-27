@@ -3,6 +3,8 @@ import { Play, Pause, Volume2, VolumeX, Download, FileAudio, RotateCcw, FileText
 import { Waveform } from './Waveform';
 import { api } from '../api';
 import { Generation } from '../types';
+import { NativeExporter } from '../services/nativeExporter';
+import { ClientAudioProcessor } from '../services/clientAudioTrimmer';
 
 interface AudioPlayerProps {
   generation: Generation;
@@ -17,8 +19,35 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ generation }) => {
   const [isMuted, setIsMuted] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
 
-  // Audio source URL
-  const audioUrl = api.getAudioUrl(generation.id, 'wav');
+  const [resolvedAudioUrl, setResolvedAudioUrl] = useState<string>('');
+
+  useEffect(() => {
+    let active = true;
+    const resolveSource = async () => {
+      const blobKey = generation.wav_path || (generation.paragraph_id ? `para_${generation.paragraph_id}_audio` : '');
+      if (blobKey) {
+        try {
+          const blob = await api.getAudioBlob(blobKey);
+          if (blob && active) {
+            const blobUrl = URL.createObjectURL(blob);
+            setResolvedAudioUrl(blobUrl);
+            return;
+          }
+        } catch {}
+      }
+      if (active) {
+        setResolvedAudioUrl(api.getAudioUrl(generation.id, 'wav'));
+      }
+    };
+
+    resolveSource();
+    return () => {
+      active = false;
+      if (resolvedAudioUrl && resolvedAudioUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(resolvedAudioUrl);
+      }
+    };
+  }, [generation.id, generation.wav_path, generation.paragraph_id]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -97,47 +126,81 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ generation }) => {
 
   return (
     <div className="bg-[#0B1322] border border-[#1F2E4A] rounded-xl p-4 flex flex-col space-y-3 shadow-inner">
-      <audio ref={audioRef} src={audioUrl} preload="metadata" />
+      <audio ref={audioRef} src={resolvedAudioUrl} preload="metadata" />
 
       {/* Top Header / Audio File Info */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-2">
-          <div className="w-6 h-6 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+        <div className="flex items-center space-x-2 min-w-0">
+          <div className="w-6 h-6 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center flex-shrink-0">
             <FileAudio className="w-3.5 h-3.5" />
           </div>
-          <div>
-            <span className="text-xs font-semibold text-white tracking-wide">
-              {generation.voice} &bull; {generation.model}
-            </span>
-            <span className="text-[10px] text-studio-textMuted ml-2 font-mono">
-              ({formatTime(currentTime)} / {formatTime(duration)})
-            </span>
+          <div className="min-w-0">
+            <div className="flex items-center space-x-1.5 flex-wrap">
+              <span className="text-xs font-semibold text-white tracking-wide">
+                {generation.voice}
+              </span>
+              <span className="text-[10px] px-1.5 py-0.2 bg-blue-500/10 text-blue-300 rounded border border-blue-500/20 font-mono">
+                {generation.model.replace('gemini-', '').replace('-preview', '')}
+              </span>
+              <span className="text-[10px] text-studio-textMuted font-mono">
+                ({formatTime(currentTime)} / {formatTime(duration)})
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Download Buttons */}
-        <div className="flex items-center space-x-2">
-          <a
-            href={api.getAudioUrl(generation.id, 'wav', true)}
-            download
-            className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 text-[11px] font-semibold transition-colors shadow-sm"
+        {/* Download & Export Buttons */}
+        <div className="flex items-center space-x-1.5 self-end sm:self-auto flex-shrink-0">
+          <button
+            onClick={async () => {
+              const blobKey = generation.wav_path || (generation.paragraph_id ? `para_${generation.paragraph_id}_audio` : '');
+              let blob: Blob | null = null;
+              if (blobKey) {
+                blob = await api.getAudioBlob(blobKey);
+              }
+              if (blob) {
+                await NativeExporter.shareOrDownloadBlob(blob, `paragraph_${generation.paragraph_id || generation.id}.wav`);
+              } else {
+                await NativeExporter.shareAudioUrl(api.getAudioUrl(generation.id, 'wav', true), `paragraph_${generation.paragraph_id || generation.id}.wav`);
+              }
+            }}
+            className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 text-[11px] font-semibold transition-colors shadow-sm active:scale-95"
             title="Download Lossless Master WAV file"
           >
             <Download className="w-3 h-3" />
-            <span>DOWNLOAD WAV</span>
-          </a>
+            <span>WAV</span>
+          </button>
 
-          {generation.mp3_path && (
-            <a
-              href={api.getAudioUrl(generation.id, 'mp3', true)}
-              download
-              className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] font-semibold transition-colors shadow-sm"
-              title="Download 320kbps MP3 file"
-            >
-              <Download className="w-3 h-3" />
-              <span>DOWNLOAD MP3</span>
-            </a>
-          )}
+          <button
+            onClick={async () => {
+              try {
+                const blobKey = generation.wav_path || (generation.paragraph_id ? `para_${generation.paragraph_id}_audio` : '');
+                let blob: Blob | null = null;
+                if (blobKey) {
+                  blob = await api.getAudioBlob(blobKey);
+                }
+                const transcript = generation.raw_prompt || '';
+                if (blob) {
+                  const buffer = await ClientAudioProcessor.decodeAudioBlob(blob);
+                  const intervals = ClientAudioProcessor.detectSpeechIntervals(buffer, -40, 0.15);
+                  const subResult = ClientAudioProcessor.generateSubtitles(transcript, intervals, buffer.duration, 4);
+                  await NativeExporter.shareText(`Subtitles`, subResult.srt, `paragraph_${generation.paragraph_id || generation.id}.srt`);
+                  return;
+                }
+                const srtText = await api.getSubtitleText(generation.id);
+                if (srtText) {
+                  await NativeExporter.shareText(`Subtitles`, srtText, `paragraph_${generation.paragraph_id || generation.id}.srt`);
+                }
+              } catch (e: any) {
+                alert(e.message || 'Could not export paragraph subtitle');
+              }
+            }}
+            className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] font-semibold transition-colors shadow-sm active:scale-95"
+            title="Export .SRT Subtitles"
+          >
+            <FileText className="w-3 h-3 text-indigo-400" />
+            <span>.SRT</span>
+          </button>
         </div>
       </div>
 
@@ -151,19 +214,19 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ generation }) => {
       />
 
       {/* Controls Bar */}
-      <div className="flex items-center justify-between pt-1">
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
         {/* Play / Pause / Replay */}
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-2">
           <button
             onClick={togglePlay}
-            className="w-9 h-9 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white flex items-center justify-center transition-all shadow-md shadow-blue-600/20"
+            className="w-8 h-8 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white flex items-center justify-center transition-all shadow-md shadow-blue-600/20"
           >
             {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
           </button>
 
           <button
             onClick={() => handleSeek(0)}
-            className="p-1.5 rounded-lg text-studio-textMuted hover:text-white hover:bg-slate-800 transition-colors"
+            className="p-1 rounded-lg text-studio-textMuted hover:text-white hover:bg-slate-800 transition-colors"
             title="Replay from beginning"
           >
             <RotateCcw className="w-3.5 h-3.5" />
@@ -171,12 +234,12 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ generation }) => {
         </div>
 
         {/* Speed Multipliers */}
-        <div className="flex items-center space-x-1 bg-slate-900/80 p-0.5 rounded-lg border border-slate-800 text-[11px] font-mono">
+        <div className="flex items-center space-x-0.5 bg-slate-900/80 p-0.5 rounded-lg border border-slate-800 text-[10px] font-mono">
           {[0.75, 1, 1.25, 1.5, 2].map((rate) => (
             <button
               key={rate}
               onClick={() => handleRateChange(rate)}
-              className={`px-1.5 py-0.5 rounded ${
+              className={`px-1.5 py-0.5 rounded transition-all ${
                 playbackRate === rate ? 'bg-blue-600 text-white font-bold' : 'text-studio-textMuted hover:text-white'
               }`}
             >
@@ -185,63 +248,31 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ generation }) => {
           ))}
         </div>
 
-        {/* Volume & Downloads */}
-        <div className="flex items-center space-x-2">
-          <div className="flex items-center space-x-1 mr-2">
-            <button onClick={toggleMute} className="text-studio-textMuted hover:text-white transition-colors">
-              {isMuted || volume === 0 ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
-            </button>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.05"
-              value={isMuted ? 0 : volume}
-              onChange={handleVolumeChange}
-              className="w-14 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-            />
-          </div>
-
-          <a
-            href={api.getAudioUrl(generation.id, 'wav', true)}
-            download
-            className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-blue-600/80 hover:bg-blue-500 text-white text-[11px] font-bold shadow transition-all"
-            title="Download Master Lossless WAV"
-          >
-            <Download className="w-3 h-3" />
-            <span>WAV</span>
-          </a>
+        {/* Volume & Additional Downloads */}
+        <div className="flex items-center space-x-1.5">
+          <button onClick={toggleMute} className="text-studio-textMuted hover:text-white transition-colors p-1">
+            {isMuted || volume === 0 ? <VolumeX className="w-3.5 h-3.5 text-rose-400" /> : <Volume2 className="w-3.5 h-3.5" />}
+          </button>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={isMuted ? 0 : volume}
+            onChange={handleVolumeChange}
+            className="w-12 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500 hidden sm:inline-block"
+          />
 
           {generation.mp3_path && (
             <a
               href={api.getAudioUrl(generation.id, 'mp3', true)}
               download
-              className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold border border-slate-700 shadow transition-all"
-              title="Download 320k MP3"
+              className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold border border-slate-700 transition-all"
+              title="Download MP3"
             >
-              <Download className="w-3 h-3" />
-              <span>MP3</span>
+              MP3
             </a>
           )}
-
-          <a
-            href={api.getParagraphSubtitlesUrl(generation.paragraph_id, 'srt', true)}
-            download
-            className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-indigo-600/80 hover:bg-indigo-500 text-white text-[11px] font-bold shadow transition-all"
-            title="Download Subtitles for CapCut / Premiere Pro (.SRT)"
-          >
-            <FileText className="w-3 h-3" />
-            <span>.SRT</span>
-          </a>
-
-          <a
-            href={api.getParagraphSubtitlesUrl(generation.paragraph_id, 'json', true)}
-            download
-            className="flex items-center space-x-1 px-1.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-mono border border-slate-700 transition-all"
-            title="Download Word-by-Word JSON Timestamps"
-          >
-            <span>JSON</span>
-          </a>
         </div>
       </div>
     </div>

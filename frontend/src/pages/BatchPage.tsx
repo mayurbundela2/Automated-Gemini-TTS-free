@@ -8,6 +8,7 @@ import { Project, Batch, VoiceItem } from '../types';
 import { ParagraphCard } from '../components/ParagraphCard';
 import { ReferenceImporter } from '../components/ReferenceImporter';
 import { GenerationProgress } from '../components/GenerationProgress';
+import { NativeExporter } from '../services/nativeExporter';
 import { api } from '../api';
 
 interface BatchPageProps {
@@ -30,23 +31,26 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
   // Batch generation status
   const [generatingAll, setGeneratingAll] = useState(false);
   const [progressState, setProgressState] = useState<{
-    status: 'idle' | 'generating' | 'completed' | 'error';
+    status: 'idle' | 'running' | 'completed' | 'error';
     current: number;
     total: number;
-    message?: string;
-  }>({ status: 'idle', current: 0, total: 0 });
+    message: string;
+  }>({
+    status: 'idle',
+    current: 0,
+    total: 0,
+    message: '',
+  });
+
+  const [masterAudioUrl, setMasterAudioUrl] = useState<string>('');
+  const [tightAudioUrl, setTightAudioUrl] = useState<string>('');
 
   const fetchBatches = async () => {
     try {
       const data = await api.getBatches(project.id);
       setBatches(data);
-      if (data.length > 0) {
-        if (!selectedBatchId || !data.find(b => b.id === selectedBatchId)) {
-          setSelectedBatchId(data[0].id);
-        }
-      } else {
-        setSelectedBatchId(null);
-        setCurrentBatch(null);
+      if (data.length > 0 && !selectedBatchId) {
+        setSelectedBatchId(data[0].id);
       }
     } catch (e) {
       console.error(e);
@@ -56,81 +60,114 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
   const fetchCurrentBatch = async () => {
     if (!selectedBatchId) return;
     try {
-      const data = await api.getBatch(selectedBatchId);
-      setCurrentBatch(data);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const fetchVoices = async () => {
-    try {
-      const data = await api.getVoices();
-      setVoices(data);
+      const b = await api.getBatch(selectedBatchId);
+      setCurrentBatch(b);
     } catch (e) {
       console.error(e);
     }
   };
 
   useEffect(() => {
-    fetchBatches();
-    fetchVoices();
+    const init = async () => {
+      setLoading(true);
+      await Promise.all([fetchBatches(), api.getVoices().then(setVoices)]);
+      setLoading(false);
+    };
+    init();
   }, [project.id]);
 
   useEffect(() => {
     if (selectedBatchId) {
-      fetchCurrentBatch().finally(() => setLoading(false));
-    } else {
-      setLoading(false);
+      fetchCurrentBatch();
     }
   }, [selectedBatchId]);
 
+  useEffect(() => {
+    let active = true;
+    const resolveBatchAudios = async () => {
+      if (selectedBatchId) {
+        try {
+          const mBlob = await api.getAudioBlob(`batch_${selectedBatchId}_master_audio`);
+          if (mBlob && active) {
+            setMasterAudioUrl(URL.createObjectURL(mBlob));
+          } else if (active) {
+            setMasterAudioUrl(`${api.getBatchAudioUrl(selectedBatchId, 'wav')}?t=${Date.now()}`);
+          }
+        } catch {}
+
+        try {
+          const tBlob = await api.getAudioBlob(`batch_${selectedBatchId}_tight_audio`);
+          if (tBlob && active) {
+            setTightAudioUrl(URL.createObjectURL(tBlob));
+          } else if (active) {
+            setTightAudioUrl(`${api.getBatchTightAudioUrl(selectedBatchId, 'wav')}?t=${Date.now()}`);
+          }
+        } catch {}
+      }
+    };
+
+    resolveBatchAudios();
+    return () => {
+      active = false;
+    };
+  }, [selectedBatchId, currentBatch?.combined_audio?.duration, currentBatch?.tight_audio?.duration]);
+
   const handleCreateBatch = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newBatchName.trim()) return;
     try {
-      const b = await api.createBatch(project.id, newBatchName || `Batch ${batches.length + 1}`);
-      setShowNewBatchModal(false);
+      const newBatch = await api.createBatch(project.id, newBatchName.trim());
+      setBatches([...batches, newBatch]);
+      setSelectedBatchId(newBatch.id);
       setNewBatchName('');
-      await fetchBatches();
-      setSelectedBatchId(b.id);
+      setShowNewBatchModal(false);
     } catch (e) {
       console.error(e);
     }
   };
 
   const handleDeleteBatch = async (batchId: number) => {
-    if (confirm('Are you sure you want to delete this batch and its generated audios?')) {
+    if (!confirm('Are you sure you want to delete this batch and all its paragraphs?')) return;
+    try {
       await api.deleteBatch(batchId);
-      await fetchBatches();
+      const remaining = batches.filter((b) => b.id !== batchId);
+      setBatches(remaining);
+      if (remaining.length > 0) {
+        setSelectedBatchId(remaining[0].id);
+      } else {
+        setSelectedBatchId(null);
+        setCurrentBatch(null);
+      }
+    } catch (e) {
+      console.error(e);
     }
   };
 
-  const handleGenerateAllReady = async () => {
-    if (!currentBatch) return;
-    
-    // Filter ready paragraphs
-    const readyParas = currentBatch.paragraphs.filter(
-      (p) => p.limit_status !== 'OVER_LIMIT' && p.transcript && p.transcript.trim()
+  const handleGenerateAll = async () => {
+    if (!currentBatch || !selectedBatchId) return;
+
+    const readyParas = (currentBatch.paragraphs || []).filter(
+      (p) => p.status === 'READY' || p.limit_status === 'SAFE' || p.limit_status === 'WARNING'
     );
 
     if (readyParas.length === 0) {
-      alert('No valid READY paragraphs found. Please split any OVER LIMIT paragraphs first.');
+      alert('No paragraphs are currently marked READY for generation.');
       return;
     }
 
     setGeneratingAll(true);
     setProgressState({
-      status: 'generating',
-      current: 1,
+      status: 'running',
+      current: 0,
       total: readyParas.length,
-      message: `Generating Paragraph 1/${readyParas.length}...`,
+      message: `Starting sequential generation of ${readyParas.length} paragraphs...`,
     });
 
     try {
       for (let i = 0; i < readyParas.length; i++) {
         const para = readyParas[i];
         setProgressState({
-          status: 'generating',
+          status: 'running',
           current: i + 1,
           total: readyParas.length,
           message: `Generating Paragraph ${i + 1}/${readyParas.length} (Part ${para.paragraph_number})...`,
@@ -140,22 +177,36 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
         await fetchCurrentBatch();
       }
 
+      // Auto-combine full narration & generate tight audio + subtitles
+      setProgressState({
+        status: 'running',
+        current: readyParas.length,
+        total: readyParas.length,
+        message: 'Assembling full batch narration track & subtitles...',
+      });
+
+      try {
+        await api.rebuildAllBatchAudio(selectedBatchId, silenceThreshold);
+        await fetchCurrentBatch();
+      } catch (combErr) {
+        console.warn('Auto-combine note:', combErr);
+      }
+
       setProgressState({
         status: 'completed',
         current: readyParas.length,
         total: readyParas.length,
-        message: `Successfully generated all ${readyParas.length} ready paragraphs!`,
+        message: `Successfully generated all ${readyParas.length} ready paragraphs & assembled full narration!`,
       });
     } catch (e: any) {
       setProgressState({
         status: 'error',
         current: progressState.current,
         total: readyParas.length,
-        message: e.message || 'Generation error occurred during batch processing',
+        message: e.message || 'Generation error occurred',
       });
     } finally {
       setGeneratingAll(false);
-      fetchCurrentBatch();
     }
   };
 
@@ -208,13 +259,42 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
     }
   };
 
+  const handleExportAudio = async (type: 'master' | 'tight', format: 'wav' | 'mp3' = 'wav') => {
+    if (!currentBatch) return;
+    const key = `batch_${currentBatch.id}_${type}_audio`;
+    const blob = await api.getAudioBlob(key);
+    if (blob) {
+      NativeExporter.shareOrDownloadBlob(blob, `batch_${currentBatch.id}_${type}.${format}`, `${currentBatch.name} - ${type} narration`);
+      return;
+    }
+    const url = type === 'master' ? api.getBatchAudioUrl(currentBatch.id, format, true) : api.getBatchTightAudioUrl(currentBatch.id, format, true);
+    NativeExporter.shareAudioUrl(url, `batch_${currentBatch.id}_${type}.${format}`);
+  };
+
+  const handleExportSubtitles = async (type: 'master' | 'tight', format: 'srt' | 'vtt' | 'json' = 'srt') => {
+    if (!currentBatch) return;
+    if (format === 'json') {
+      const timestamps = await api.getBatchWordTimestamps(currentBatch.id, type);
+      NativeExporter.shareText(`Word Timestamps`, JSON.stringify(timestamps, null, 2), `batch_${currentBatch.id}_${type}_timestamps.json`);
+      return;
+    }
+    const subText = await api.getBatchSubtitleText(currentBatch.id, type, format as any);
+    if (subText) {
+      NativeExporter.shareText(`Subtitles`, subText, `batch_${currentBatch.id}_${type}.${format}`);
+      return;
+    }
+    const url = api.getBatchSubtitlesUrl(currentBatch.id, format, type, true);
+    window.open(url, '_blank');
+  };
+
   const handleViewTimestamps = async (type: 'master' | 'tight') => {
-    if (!selectedBatchId) return;
+    const bId = currentBatch?.id || selectedBatchId;
+    if (!bId) return;
     setSubtitleModalType(type);
     setShowSubtitleModal(true);
     setLoadingTimestamps(true);
     try {
-      const data = await api.getBatchWordTimestamps(selectedBatchId, type);
+      const data = await api.getBatchWordTimestamps(bId, type);
       setWordTimestamps(data);
     } catch (e: any) {
       alert(e.message || 'Failed to fetch timestamps');
@@ -266,7 +346,7 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
               >
                 {batches.map((b) => (
                   <option key={b.id} value={b.id}>
-                    {b.name} ({b.paragraphs.length} paras)
+                    {b.name} ({b.paragraphs?.length ?? b.total_paragraphs ?? 0} paras)
                   </option>
                 ))}
               </select>
@@ -325,7 +405,7 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
 
               {/* Stats badges */}
               <div className="flex flex-wrap items-center gap-3 text-xs font-mono text-studio-textMuted">
-                <span>Total Paras: <strong className="text-white">{currentBatch.paragraphs.length}</strong></span>
+                <span>Total Paras: <strong className="text-white">{currentBatch.paragraphs?.length || 0}</strong></span>
                 <span>&bull;</span>
                 <span>Words: <strong className="text-white">{currentBatch.total_words}</strong></span>
                 <span>&bull;</span>
@@ -345,51 +425,30 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
             </div>
 
             {/* Main Batch Action Buttons */}
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2.5">
               <button
                 onClick={() => setShowImporter(true)}
-                className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition-all shadow"
+                className="flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs font-bold border border-slate-700 transition-all shadow"
               >
                 <FileDown className="w-4 h-4 text-blue-400" />
-                <span>IMPORT SCRIPT REFERENCE</span>
+                <span>IMPORT SCRIPT</span>
               </button>
 
-              {currentBatch.completed_count > 1 && (
-                <button
-                  onClick={handleRebuildAll}
-                  disabled={rebuilding}
-                  className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white text-xs font-extrabold shadow-lg shadow-indigo-600/30 transition-all active:scale-95"
-                  title="Rebuilds both Full Batch Narration and No-Pause Timeline MP4 using current paragraph audios"
-                >
-                  {rebuilding ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>REBUILDING NARRATION...</span>
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="w-4 h-4" />
-                      <span>REBUILD FULL NARRATION & MP4</span>
-                    </>
-                  )}
-                </button>
-              )}
-
               <button
-                onClick={handleGenerateAllReady}
+                onClick={handleGenerateAll}
                 disabled={generatingAll || currentBatch.ready_count === 0}
-                className="flex items-center space-x-2 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold shadow-lg shadow-blue-600/20 active:scale-95 transition-all"
+                className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold shadow-lg shadow-blue-600/25 active:scale-95 transition-all"
                 title="Sequentially generates all READY paragraphs in this batch"
               >
                 {generatingAll ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>GENERATING BATCH...</span>
+                    <span>GENERATING...</span>
                   </>
                 ) : (
                   <>
                     <Play className="w-4 h-4 fill-current" />
-                    <span>GENERATE ALL READY ({currentBatch.ready_count})</span>
+                    <span>GENERATE READY ({currentBatch.ready_count})</span>
                   </>
                 )}
               </button>
@@ -404,276 +463,183 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
             message={progressState.message}
           />
 
-          {/* Combined Full Batch Audio Player Card */}
+          {/* Unified Full Batch Audio Suite */}
           {currentBatch.combined_audio && (
-            <div className="space-y-4">
-              {/* Master Combined Audio */}
-              <div className="bg-gradient-to-r from-[#111E36] to-[#16233F] border-2 border-indigo-500/40 rounded-2xl p-5 shadow-2xl space-y-4">
-                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30">
-                      <Sparkles className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <h3 className="font-extrabold text-sm text-white tracking-wide">
-                          FULL BATCH NARRATION (ALL PARTS JOINED)
-                        </h3>
-                        <span className="text-[10px] uppercase font-mono px-2 py-0.5 bg-indigo-500/20 text-indigo-300 rounded-full border border-indigo-500/30 font-bold">
-                          Master Audio
-                        </span>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              {/* Deck 1: Master Sequential Narration */}
+              <div className="bg-gradient-to-br from-[#0F1B30] to-[#142340] border border-indigo-500/40 rounded-2xl p-5 shadow-2xl flex flex-col justify-between space-y-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30">
+                        <Sparkles className="w-4 h-4" />
                       </div>
-                      <p className="text-xs text-slate-300 font-mono mt-0.5">
-                        Original Duration: <strong>{currentBatch.combined_audio.duration}s</strong> &bull; Complete sequential voiceover of all {currentBatch.completed_count} parts
-                      </p>
+                      <div>
+                        <h3 className="font-extrabold text-sm text-white tracking-wide">
+                          MASTER NARRATION
+                        </h3>
+                        <p className="text-[11px] text-slate-300 font-mono">
+                          All {currentBatch.completed_count} parts joined &bull; <strong>{currentBatch.combined_audio.duration}s</strong>
+                        </p>
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       onClick={handleRebuildAll}
                       disabled={rebuilding}
-                      className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-600/80 hover:bg-indigo-600 disabled:opacity-50 text-white text-xs font-bold border border-indigo-500/50 shadow transition-all active:scale-95"
-                      title="Rebuild narration if you updated or re-generated any paragraph audio"
+                      className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/40 text-xs font-semibold transition-all active:scale-95"
+                      title="Rebuild master audio track"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${rebuilding ? 'animate-spin' : ''}`} />
-                      <span>REBUILD ALL</span>
+                      <span>Rebuild</span>
                     </button>
-
-                    <select
-                      value={silenceThreshold}
-                      onChange={(e) => setSilenceThreshold(parseFloat(e.target.value))}
-                      className="bg-slate-900/90 border border-amber-500/40 rounded-xl px-2.5 py-1.5 text-xs text-amber-300 font-mono focus:outline-none focus:border-amber-400 font-bold shadow"
-                      title="Select pause trimming aggressiveness"
-                    >
-                      <option value={0.12}>🔥 Ultra-Tight (0.12s)</option>
-                      <option value={0.18}>⚡ Clean & Punchy (0.18s)</option>
-                      <option value={0.28}>🌿 Natural (0.28s)</option>
-                    </select>
-
-                    <button
-                      onClick={handleTightenBatchAudio}
-                      disabled={tightening}
-                      className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 disabled:opacity-50 text-white text-xs font-extrabold shadow-md shadow-orange-500/20 transition-all active:scale-95"
-                      title="Automatically trim dead pauses/silences and generate a fast, punchy narration track + 1080p MP4 timeline video"
-                    >
-                      {tightening ? (
-                        <>
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          <span>TRIMMING PAUSES...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Zap className="w-3.5 h-3.5 fill-current" />
-                          <span>TRIM PAUSES & CREATE MP4</span>
-                        </>
-                      )}
-                    </button>
-
-                    <a
-                      href={`${api.getBatchAudioUrl(currentBatch.id, 'wav', true)}&t=${audioCacheKey}`}
-                      download
-                      className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md shadow-blue-600/20 transition-all"
-                      title="Download Combined Master WAV"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>FULL WAV</span>
-                    </a>
-
-                    {currentBatch.combined_audio.mp3_path && (
-                      <a
-                        href={`${api.getBatchAudioUrl(currentBatch.id, 'mp3', true)}&t=${audioCacheKey}`}
-                        download
-                        className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 shadow transition-all"
-                        title="Download Combined 320k MP3"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>FULL MP3</span>
-                      </a>
-                    )}
                   </div>
+
+                  {/* Master Audio Element */}
+                  <audio
+                    key={`combined-${audioCacheKey}`}
+                    controls
+                    className="w-full h-10 rounded-xl accent-indigo-500 bg-slate-900/60"
+                    src={masterAudioUrl || `${api.getBatchAudioUrl(currentBatch.id, 'wav')}?t=${audioCacheKey}`}
+                  />
                 </div>
 
-                {/* Combined Audio Element */}
-                <audio
-                  key={`combined-${audioCacheKey}`}
-                  controls
-                  className="w-full h-10 rounded-xl accent-indigo-500"
-                  src={`${api.getBatchAudioUrl(currentBatch.id, 'wav')}?t=${audioCacheKey}`}
-                />
-                {/* Master Subtitle & Timestamp Actions */}
-                <div className="pt-2 border-t border-indigo-500/20 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center space-x-2 text-xs text-indigo-300 font-mono">
-                    <FileText className="w-3.5 h-3.5" />
-                    <span className="font-semibold">Subtitles & Timestamps:</span>
-                  </div>
+                {/* Master Actions Bar */}
+                <div className="pt-3 border-t border-indigo-500/20 flex flex-wrap items-center justify-between gap-2">
+                  <button
+                    onClick={() => handleViewTimestamps('master')}
+                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-500/40 text-xs font-semibold transition-all active:scale-95"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Subtitles & Timestamps</span>
+                  </button>
 
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center space-x-1.5">
                     <button
-                      onClick={() => handleViewTimestamps('master')}
-                      className="flex items-center space-x-1.5 px-3 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-500/30 text-xs font-semibold transition-all"
-                      title="Inspect word-by-word timestamps"
+                      onClick={() => handleExportAudio('master', 'wav')}
+                      className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow transition-all active:scale-95 flex items-center space-x-1"
+                      title="Export Lossless Master WAV"
                     >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>VIEW WORD TIMESTAMPS</span>
+                      <Download className="w-3.5 h-3.5" />
+                      <span>WAV</span>
                     </button>
 
-                    <a
-                      href={api.getBatchSubtitlesUrl(currentBatch.id, 'srt', 'master', true)}
-                      download
-                      className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-mono transition-all"
-                      title="Download SubRip .SRT (Premiere, CapCut, DaVinci)"
-                    >
-                      <Download className="w-3 h-3" />
-                      <span>.SRT</span>
-                    </a>
-
-                    <a
-                      href={api.getBatchSubtitlesUrl(currentBatch.id, 'vtt', 'master', true)}
-                      download
-                      className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-mono transition-all"
-                      title="Download WebVTT .VTT"
-                    >
-                      <Download className="w-3 h-3" />
-                      <span>.VTT</span>
-                    </a>
-
-                    <a
-                      href={api.getBatchSubtitlesUrl(currentBatch.id, 'json', 'master', true)}
-                      download
-                      className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-mono transition-all"
-                      title="Download Word-by-Word JSON Timestamps"
-                    >
-                      <Download className="w-3 h-3" />
-                      <span>WORDS (.JSON)</span>
-                    </a>
+                    {currentBatch.combined_audio.mp3_path && (
+                      <button
+                        onClick={() => handleExportAudio('master', 'mp3')}
+                        className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition-all active:scale-95 flex items-center space-x-1"
+                        title="Export 320k Master MP3"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>MP3</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
 
-              {/* No-Pause Fast Narration Track + Timeline MP4 Card */}
-              {currentBatch.tight_audio && (
-                <div className="bg-gradient-to-r from-[#0E1F24] to-[#122A26] border-2 border-emerald-500/40 rounded-2xl p-5 shadow-2xl space-y-4 animate-fadeIn">
-                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+              {/* Deck 2: No-Pause AI Edit & Timeline Track */}
+              <div className="bg-gradient-to-br from-[#0B1E22] to-[#102B28] border border-emerald-500/40 rounded-2xl p-5 shadow-2xl flex flex-col justify-between space-y-4">
+                <div className="space-y-3">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div className="flex items-center space-x-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30 flex-shrink-0">
                         <Zap className="w-4 h-4 fill-current" />
                       </div>
                       <div>
                         <div className="flex items-center space-x-2">
                           <h3 className="font-extrabold text-sm text-white tracking-wide">
-                            NO-PAUSE NARRATION (AUTO-TRIMMED & TIMELINE MP4)
+                            NO-PAUSE EDIT
                           </h3>
-                          <span className="text-[10px] uppercase font-mono px-2 py-0.5 bg-emerald-500/20 text-emerald-300 rounded-full border border-emerald-500/30 font-bold">
-                            Fast / Punchy Edit
-                          </span>
+                          {currentBatch.tight_audio && (
+                            <span className="text-[10px] uppercase font-mono px-2 py-0.5 bg-emerald-500/20 text-emerald-300 rounded-full border border-emerald-500/30 font-bold whitespace-nowrap">
+                              🔥 Saved {roundTwo((currentBatch.combined_audio?.duration || 0) - currentBatch.tight_audio.duration)}s
+                            </span>
+                          )}
                         </div>
-                        <p className="text-xs text-emerald-300/80 font-mono mt-0.5">
-                          Duration: <strong>{currentBatch.tight_audio.duration}s</strong> (saved {roundTwo((currentBatch.combined_audio.duration || 0) - currentBatch.tight_audio.duration)}s of pauses) &bull; Ready for Premiere, CapCut & DaVinci
+                        <p className="text-[11px] text-emerald-300/80 font-mono">
+                          {currentBatch.tight_audio
+                            ? `Timeline duration: ${currentBatch.tight_audio.duration}s`
+                            : 'Trim dead air & export synced timeline'}
                         </p>
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2">
-                      {currentBatch.tight_audio.mp4_path && (
-                        <a
-                          href={`${api.getBatchTightAudioUrl(currentBatch.id, 'mp4', true)}&t=${audioCacheKey}`}
-                          download
-                          className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-extrabold shadow-lg shadow-emerald-600/30 transition-all active:scale-95"
-                          title="Download 1080p MP4 Timeline Video (Drop directly onto video editing timeline)"
-                        >
-                          <Film className="w-3.5 h-3.5" />
-                          <span>DOWNLOAD TIMELINE MP4 (1080p)</span>
-                        </a>
-                      )}
-
-                      <a
-                        href={`${api.getBatchTightAudioUrl(currentBatch.id, 'wav', true)}&t=${audioCacheKey}`}
-                        download
-                        className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 shadow transition-all"
-                        title="Download No-Pause Master WAV"
+                    <div className="flex items-center space-x-1.5 self-end sm:self-auto">
+                      <select
+                        value={silenceThreshold}
+                        onChange={(e) => setSilenceThreshold(parseFloat(e.target.value))}
+                        className="bg-slate-900/90 border border-emerald-500/40 rounded-lg px-2 py-1 text-xs text-emerald-300 font-mono focus:outline-none font-bold"
+                        title="Select pause trimming aggressiveness"
                       >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>NO-PAUSE WAV</span>
-                      </a>
+                        <option value={0.12}>🔥 Ultra (0.12s)</option>
+                        <option value={0.18}>⚡ Punchy (0.18s)</option>
+                        <option value={0.28}>🌿 Natural (0.28s)</option>
+                      </select>
 
-                      {currentBatch.tight_audio.mp3_path && (
-                        <a
-                          href={`${api.getBatchTightAudioUrl(currentBatch.id, 'mp3', true)}&t=${audioCacheKey}`}
-                          download
-                          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 shadow transition-all"
-                          title="Download No-Pause 320k MP3"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>NO-PAUSE MP3</span>
-                        </a>
-                      )}
+                      <button
+                        onClick={handleTightenBatchAudio}
+                        disabled={tightening}
+                        className="flex items-center space-x-1 px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-extrabold shadow transition-all active:scale-95 whitespace-nowrap"
+                        title="Trim silences & generate tight timeline"
+                      >
+                        <Zap className="w-3 h-3 fill-current" />
+                        <span>{tightening ? 'Trimming...' : 'Trim'}</span>
+                      </button>
                     </div>
                   </div>
 
                   {/* Tight Audio Element */}
-                  <audio
-                    key={`tight-${audioCacheKey}`}
-                    controls
-                    className="w-full h-10 rounded-xl accent-emerald-500"
-                    src={`${api.getBatchTightAudioUrl(currentBatch.id, 'wav')}?t=${audioCacheKey}`}
-                  />
+                  {currentBatch.tight_audio && (
+                    <audio
+                      key={`tight-${audioCacheKey}`}
+                      controls
+                      className="w-full h-10 rounded-xl accent-emerald-500 bg-slate-900/60"
+                      src={tightAudioUrl || `${api.getBatchTightAudioUrl(currentBatch.id, 'wav')}?t=${audioCacheKey}`}
+                    />
+                  )}
+                </div>
 
-                  {/* Tight Subtitle & Timestamp Actions */}
-                  <div className="pt-2 border-t border-emerald-500/20 flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center space-x-2 text-xs text-emerald-300 font-mono">
-                      <FileText className="w-3.5 h-3.5" />
-                      <span className="font-semibold">No-Pause Subtitles & Timestamps:</span>
-                    </div>
+                {/* Tight Actions Bar */}
+                {currentBatch.tight_audio && (
+                  <div className="pt-3 border-t border-emerald-500/20 flex flex-wrap items-center justify-between gap-2">
+                    <button
+                      onClick={() => handleViewTimestamps('tight')}
+                      className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 border border-emerald-500/40 text-xs font-semibold transition-all active:scale-95"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>No-Pause Subtitles</span>
+                    </button>
 
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center space-x-1.5">
                       <button
-                        onClick={() => handleViewTimestamps('tight')}
-                        className="flex items-center space-x-1.5 px-3 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 border border-emerald-500/30 text-xs font-semibold transition-all"
-                        title="Inspect word-by-word timestamps for tight audio"
+                        onClick={() => handleExportAudio('tight', 'wav')}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow transition-all active:scale-95 flex items-center space-x-1"
+                        title="Export No-Pause WAV"
                       >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>VIEW NO-PAUSE TIMESTAMPS</span>
+                        <Download className="w-3.5 h-3.5" />
+                        <span>WAV</span>
                       </button>
 
-                      <a
-                        href={api.getBatchSubtitlesUrl(currentBatch.id, 'srt', 'tight', true)}
-                        download
-                        className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-mono transition-all"
-                        title="Download Aligned .SRT Subtitles for Tight Audio"
-                      >
-                        <Download className="w-3 h-3" />
-                        <span>NO-PAUSE .SRT</span>
-                      </a>
-
-                      <a
-                        href={api.getBatchSubtitlesUrl(currentBatch.id, 'vtt', 'tight', true)}
-                        download
-                        className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-mono transition-all"
-                        title="Download Aligned .VTT Subtitles for Tight Audio"
-                      >
-                        <Download className="w-3 h-3" />
-                        <span>NO-PAUSE .VTT</span>
-                      </a>
-
-                      <a
-                        href={api.getBatchSubtitlesUrl(currentBatch.id, 'json', 'tight', true)}
-                        download
-                        className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-mono transition-all"
-                        title="Download No-Pause Word-by-Word JSON Timestamps"
-                      >
-                        <Download className="w-3 h-3" />
-                        <span>WORDS (.JSON)</span>
-                      </a>
+                      {currentBatch.tight_audio.mp3_path && (
+                        <button
+                          onClick={() => handleExportAudio('tight', 'mp3')}
+                          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition-all active:scale-95 flex items-center space-x-1"
+                          title="Export No-Pause 320k MP3"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>MP3</span>
+                        </button>
+                      )}
                     </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )}
 
           {/* Paragraphs List */}
-          {currentBatch.paragraphs.length === 0 ? (
+          {(!currentBatch.paragraphs || currentBatch.paragraphs.length === 0) ? (
             <div className="text-center py-12 bg-studio-card/20 border border-dashed border-studio-cardBorder rounded-2xl space-y-3">
               <p className="text-xs text-studio-textMuted">
                 This batch has no paragraphs yet. Paste your AI Studio script breakdown to populate.
@@ -835,28 +801,28 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
             {/* Modal Footer */}
             <div className="px-6 py-3.5 border-t border-slate-800 bg-[#141E33] flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center space-x-2">
-                <span className="text-xs font-mono text-slate-400">Downloads:</span>
-                <a
-                  href={api.getBatchSubtitlesUrl(currentBatch.id, 'srt', subtitleModalType, true)}
-                  download
-                  className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow transition-all"
+                <span className="text-xs font-mono text-slate-400">Export Options:</span>
+                <button
+                  type="button"
+                  onClick={() => handleExportSubtitles(subtitleModalType, 'srt')}
+                  className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow transition-all active:scale-95"
                 >
-                  Download .SRT
-                </a>
-                <a
-                  href={api.getBatchSubtitlesUrl(currentBatch.id, 'vtt', subtitleModalType, true)}
-                  download
-                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition-all"
+                  Export .SRT
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleExportSubtitles(subtitleModalType, 'vtt')}
+                  className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition-all active:scale-95"
                 >
-                  Download .VTT
-                </a>
-                <a
-                  href={api.getBatchSubtitlesUrl(currentBatch.id, 'json', subtitleModalType, true)}
-                  download
-                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition-all"
+                  Export .VTT
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleExportSubtitles(subtitleModalType, 'json')}
+                  className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition-all active:scale-95"
                 >
-                  Download Words (.JSON)
-                </a>
+                  Export Words (.JSON)
+                </button>
               </div>
 
               <button

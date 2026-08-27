@@ -1,0 +1,12 @@
+{
+  "name": "automate-gemini-tts-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "cd frontend && npm run dev",
+    "build": "cd frontend && npm run build",
+    "build:fast": "cd frontend && npm run build:fast",
+    "build:apk": "cd frontend && npm run build:apk",
+    "build:install": "cd frontend && npm run build:install"
+  }
+}

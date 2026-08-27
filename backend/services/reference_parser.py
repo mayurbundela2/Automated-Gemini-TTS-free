@@ -218,7 +218,7 @@ class ReferenceParser:
             for l in raw_transcript_lines:
                 cl = cls._clean_transcript_line(l)
                 # If trailing separator or instructions in footer
-                if cl.startswith("---") or cl.startswith("Generate these") or cl.startswith("Let me know"):
+                if cl.startswith("---") or cl.startswith("Generate these") or cl.startswith("Let me know") or re.match(r'^(?:🎬|🎥|💡|📌|📝)?\s*(?:CapCut|Production|Video|Audio|Editing|Tips|Notes|Hook Impact|Setup to Twist)', cl, re.I):
                     break
                 cleaned_transcript_lines.append(cl)
         else:

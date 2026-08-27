@@ -83,30 +83,30 @@ export const ParagraphCard: React.FC<ParagraphCardProps> = ({
       isOverLimit ? 'border-rose-500/40 ring-1 ring-rose-500/20' : 'border-studio-cardBorder hover:border-slate-700'
     }`}>
       {/* Card Header Bar */}
-      <div className="px-5 py-3.5 bg-[#141F36] border-b border-studio-cardBorder flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <span className="w-8 h-8 rounded-xl bg-blue-600/20 text-blue-400 font-mono font-extrabold text-xs flex items-center justify-center border border-blue-500/30">
+      <div className="px-4 sm:px-5 py-3 bg-[#141F36] border-b border-studio-cardBorder flex items-center justify-between gap-2">
+        <div className="flex items-center space-x-2.5 min-w-0">
+          <span className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-blue-600/20 text-blue-400 font-mono font-extrabold text-xs flex-shrink-0 flex items-center justify-center border border-blue-500/30">
             {paragraph.paragraph_number < 10 ? `0${paragraph.paragraph_number}` : paragraph.paragraph_number}
           </span>
-          <div>
-            <div className="flex items-center space-x-2">
-              <h3 className="font-bold text-sm text-white tracking-wide">
+          <div className="min-w-0">
+            <div className="flex items-center space-x-1.5 flex-wrap">
+              <h3 className="font-bold text-xs sm:text-sm text-white tracking-wide flex-shrink-0">
                 PARAGRAPH {paragraph.paragraph_number}
               </h3>
               {paragraph.part_number && (
-                <span className="text-xs text-blue-300 font-semibold px-2 py-0.5 bg-blue-500/10 rounded-md border border-blue-500/20">
+                <span className="text-[11px] text-blue-300 font-semibold px-2 py-0.5 bg-blue-500/15 rounded-md border border-blue-500/30 truncate max-w-[140px] sm:max-w-xs">
                   {paragraph.part_number}
                 </span>
               )}
             </div>
             {paragraph.speaker && (
-              <span className="text-[11px] text-studio-textMuted">Speaker: {paragraph.speaker}</span>
+              <span className="text-[10px] sm:text-[11px] text-studio-textMuted block truncate">Speaker: {paragraph.speaker}</span>
             )}
           </div>
         </div>
 
         {/* Right Header: Limit Gauges & Quick Actions */}
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-2 sm:space-x-3 flex-shrink-0">
           <LimitIndicator
             metrics={paragraph.limit_metrics}
             words={paragraph.word_count}
