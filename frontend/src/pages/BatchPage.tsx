@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { 
   ArrowLeft, Plus, Play, Sparkles, FileDown, FolderOpen, 
   CheckCircle, AlertTriangle, Layers, RefreshCw, Trash2,
-  Zap, Scissors, Film, Video, Download, FileText, Clock, Eye, X, Copy, Check
+  Zap, Scissors, Film, Video, Download, FileText, Clock, Eye, X, Copy, Check, ShieldCheck
 } from 'lucide-react';
 import { Project, Batch, VoiceItem } from '../types';
 import { ParagraphCard } from '../components/ParagraphCard';
 import { ReferenceImporter } from '../components/ReferenceImporter';
+import { ScriptWordCheckerModal } from '../components/ScriptWordCheckerModal';
 import { GenerationProgress } from '../components/GenerationProgress';
 import { NativeExporter } from '../services/nativeExporter';
 import { api } from '../api';
@@ -25,6 +26,7 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
   
   const [loading, setLoading] = useState(true);
   const [showImporter, setShowImporter] = useState(false);
+  const [showScriptChecker, setShowScriptChecker] = useState(false);
   const [showNewBatchModal, setShowNewBatchModal] = useState(false);
   const [newBatchName, setNewBatchName] = useState('');
   
@@ -427,6 +429,33 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
             {/* Main Batch Action Buttons */}
             <div className="flex flex-wrap items-center gap-2.5">
               <button
+                onClick={() => setShowScriptChecker(true)}
+                disabled={!currentBatch.paragraphs?.length}
+                className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-indigo-600/30 to-purple-600/30 hover:from-indigo-600/50 hover:to-purple-600/50 text-indigo-200 text-xs font-bold border border-indigo-500/40 transition-all shadow active:scale-95 disabled:opacity-50"
+                title="Scan and verify original master script word-by-word against voiceover paragraphs"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-indigo-300" />
+                <span>CHECK SCRIPT</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  const fullScript = (currentBatch.paragraphs || []).map((p) => p.transcript).filter(Boolean).join('\n\n');
+                  if (!fullScript) {
+                    alert('No paragraph transcripts to copy.');
+                    return;
+                  }
+                  navigator.clipboard.writeText(fullScript);
+                  alert('Full narration script copied to clipboard!');
+                }}
+                className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs font-bold border border-slate-700 transition-all shadow"
+                title="Copy all paragraph transcripts combined"
+              >
+                <Copy className="w-3.5 h-3.5 text-indigo-400" />
+                <span>COPY SCRIPT</span>
+              </button>
+
+              <button
                 onClick={() => setShowImporter(true)}
                 className="flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs font-bold border border-slate-700 transition-all shadow"
               >
@@ -674,6 +703,51 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
           batchId={selectedBatchId}
           onImportSuccess={fetchCurrentBatch}
           onClose={() => setShowImporter(false)}
+        />
+      )}
+
+      {/* Script Word Checker Modal */}
+      {showScriptChecker && (
+        <ScriptWordCheckerModal
+          isOpen={showScriptChecker}
+          onClose={() => setShowScriptChecker(false)}
+          paragraphs={currentBatch?.paragraphs || []}
+          onUpdateParagraph={async (index, updatedTranscript) => {
+            const paras = currentBatch?.paragraphs || [];
+            if (index < 0 || index >= paras.length) return;
+            const p = paras[index];
+            const cleanWords = updatedTranscript.replace(/\[.*?\]/g, '').trim();
+            const wordCount = cleanWords ? cleanWords.split(/\s+/).filter(Boolean).length : 0;
+            const charCount = updatedTranscript.length;
+            const limitStatus = charCount > 650 ? 'OVER_LIMIT' : 'SAFE';
+
+            if (p.id) {
+              await api.updateParagraph(p.id, {
+                transcript: updatedTranscript,
+                word_count: wordCount,
+                character_count: charCount,
+                limit_status: limitStatus,
+              });
+              await fetchCurrentBatch();
+            }
+          }}
+          onUpdateAllParagraphs={async (updatedParas) => {
+            for (const p of updatedParas) {
+              if (p.id) {
+                const cleanWords = (p.transcript || '').replace(/\[.*?\]/g, '').trim();
+                const wordCount = cleanWords ? cleanWords.split(/\s+/).filter(Boolean).length : 0;
+                const charCount = (p.transcript || '').length;
+                const limitStatus = charCount > 650 ? 'OVER_LIMIT' : 'SAFE';
+                await api.updateParagraph(p.id, {
+                  transcript: p.transcript,
+                  word_count: wordCount,
+                  character_count: charCount,
+                  limit_status: limitStatus,
+                });
+              }
+            }
+            await fetchCurrentBatch();
+          }}
         />
       )}
 

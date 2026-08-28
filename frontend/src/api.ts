@@ -234,8 +234,8 @@ export const api = {
     return { detected_count: previewParagraphs.length, paragraphs: previewParagraphs };
   },
 
-  async importReference(batchId: number, rawText: string, defaultVoice?: string): Promise<Batch> {
-    if (await checkBackend()) {
+  async importReference(batchId: number, rawText: string, defaultVoice?: string, parsedOverrides?: any[]): Promise<Batch> {
+    if (await checkBackend() && !parsedOverrides) {
       try {
         const res = await fetch(`${API_BASE}/batches/${batchId}/import-reference`, {
           method: 'POST',
@@ -246,7 +246,7 @@ export const api = {
       } catch {}
     }
 
-    const parsed = ClientReferenceParser.parseBatch(rawText, defaultVoice || 'Algenib');
+    const parsed = parsedOverrides || ClientReferenceParser.parseBatch(rawText, defaultVoice || 'Algenib');
     const paragraphs: Paragraph[] = parsed.map((p, idx) => {
       const words = p.transcript ? p.transcript.split(/\s+/).filter(Boolean).length : 0;
       const chars = p.transcript ? p.transcript.length : 0;

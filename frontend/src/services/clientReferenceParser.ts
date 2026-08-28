@@ -19,8 +19,8 @@ export interface ParsedParagraphData {
 }
 
 export class ClientReferenceParser {
-  // Matches "Part 1:", "### Part 1 -", "**Part 1:**", "Paragraph 1:", "Scene 1:", "Section 1:"
-  private static PART_HEADER_REGEX = /(?:^|\n)\s*(?:---\s*\n\s*)?(?:#{1,6}\s*)?(?:\*{1,2})?(?:Part|Paragraph|Scene|Section|Shot)\s*(\d+)[:\s—\-&]*(.*?)(?:\*{1,2})?(?=\n|$)/gi;
+  // Matches lines starting with "Part 1:", "### Part 1 -", "**Part 1:**", "Paragraph 1:", "Section 1:", "Chapter 1:"
+  private static PART_HEADER_REGEX = /(?:^|\n)[ \t]*(?:---[ \t]*\n[ \t]*)?(?:#{1,6}[ \t]*)?(?:\*{1,2})?(?:Part|Section|Paragraph|Chapter)[ \t]*(\d+)[:\s—\-&]*(.*?)(?:\*{1,2})?(?=\n|$)/gi;
 
   public static parseBatch(rawText: string, defaultVoice: string = 'Algenib'): ParsedParagraphData[] {
     const text = rawText.trim().replace(/\r\n/g, '\n');
@@ -83,47 +83,48 @@ export class ClientReferenceParser {
     let accent = 'Neutral';
     let voice = defaultVoice || 'Algenib';
 
-    let scriptStartIndex = -1;
-    let tipsStartIndex = -1;
+    const transcriptLines: string[] = [];
+    let isExplicitScript = false;
 
-    // Detect Script Header and Tips/Production section headers
     for (let i = 0; i < lines.length; i++) {
-      const l = lines[i].trim();
-      const cleaned = l.replace(/^[-*+]\s+/, '').replace(/\*\*/g, '').trim();
+      const raw = lines[i];
+      const trimmed = raw.trim();
+      if (!trimmed || trimmed === '---') continue;
 
-      // Check for Script Header
-      if (
-        /^(?:Formatted Script to Copy-Paste|Formatted Script|Script to Copy-Paste|Script|Transcript|Spoken Text|Narration Script|Dialogue)[:\s]*$/i.test(
-          cleaned
-        )
-      ) {
-        scriptStartIndex = i;
+      const cleaned = trimmed.replace(/^[-*+]\s+/, '').replace(/\*\*/g, '').trim();
+
+      // Ignore Part header line itself
+      if (/^(?:#{1,6}\s*)?(?:\*{1,2})?(?:Part|Section|Paragraph|Chapter)\s*\d+/i.test(cleaned)) {
         continue;
       }
 
-      // Check for CapCut / Production Tips header (stop collecting script)
-      if (
-        scriptStartIndex !== -1 &&
-        i > scriptStartIndex &&
-        /(?:🎬|🎥|💡|📌|📝)?\s*(?:CapCut|Production|Video|Audio|Editing|Tips|Notes|Hook Impact|Setup to Twist)/i.test(
-          cleaned
-        )
-      ) {
-        tipsStartIndex = i;
+      // Ignore Section setup labels
+      if (/^(?:Playground Setup|Voice Setup|Director Setup|Setup|Parameters|Context Setup)[:\s]*$/i.test(cleaned)) {
+        continue;
+      }
+
+      // Check for explicit script header
+      if (/^(?:Formatted Script to Copy-Paste|Formatted Script|Script to Copy-Paste|Spoken Transcript|Script|Transcript|Dialogue|Spoken Text|Narration)[:\s]*$/i.test(cleaned)) {
+        isExplicitScript = true;
+        continue;
+      }
+
+      // Ignore tips footer
+      if (/^(?:🎬|🎥|💡|📌|📝)?\s*(?:CapCut Tips|Production Tips|Editing Tips|Production Notes|Video Notes|Audio Notes|CapCut Notes|Actionable Tips)[:\s]*$/i.test(cleaned)) {
         break;
       }
-    }
 
-    // Parse Metadata from lines before the script
-    const metaLines = scriptStartIndex !== -1 ? lines.slice(0, scriptStartIndex) : lines;
+      // If we are in explicit script section, every line is spoken script
+      if (isExplicitScript) {
+        let scriptLine = trimmed.startsWith('>') ? trimmed.substring(1).trim() : trimmed;
+        scriptLine = scriptLine.replace(/`(\[[^\]]+\])`/g, '$1');
+        if (scriptLine) transcriptLines.push(scriptLine);
+        continue;
+      }
 
-    for (const rawLine of metaLines) {
-      const line = rawLine.trim();
-      if (!line) continue;
-
-      // Extract piped key-values: e.g. "Style: Newscaster | Pace: Rapid Fire | Accent: Neutral | Voice: Algenib"
-      if (line.includes('|') && (line.includes(':') || line.includes('Voice'))) {
-        const segments = line.split('|');
+      // Check pipe-separated metadata (e.g. Style: Newscaster | Pace: Rapid Fire | Voice: Algenib)
+      if (cleaned.includes('|') && (cleaned.includes(':') || cleaned.includes('Voice'))) {
+        const segments = cleaned.split('|');
         for (const seg of segments) {
           this.extractField(seg.trim(), (k, v) => {
             if (k === 'style') style = v;
@@ -138,8 +139,10 @@ export class ClientReferenceParser {
         continue;
       }
 
-      // Extract standard bullet key-value
-      this.extractField(line, (k, v) => {
+      // Check single metadata fields
+      let isMeta = false;
+      this.extractField(cleaned, (k, v) => {
+        isMeta = true;
         if (k === 'scene') scene = v;
         else if (k === 'context') sampleContext = v;
         else if (k === 'audio') audioProfile = v;
@@ -149,42 +152,21 @@ export class ClientReferenceParser {
         else if (k === 'accent') accent = v;
         else if (k === 'voice') voice = v;
       });
-    }
 
-    // Extract Transcript
-    const transcriptLines: string[] = [];
+      if (isMeta) continue;
 
-    if (scriptStartIndex !== -1) {
-      const endIdx = tipsStartIndex !== -1 ? tipsStartIndex : lines.length;
-      const scriptSlice = lines.slice(scriptStartIndex + 1, endIdx);
-
-      for (const raw of scriptSlice) {
-        let l = raw.trim();
-        // Remove leading markdown quote >
-        if (l.startsWith('>')) {
-          l = l.substring(1).trim();
-        }
-        // Normalize backticks around tags `[serious]` -> [serious]
-        l = l.replace(/`(\[[^\]]+\])`/g, '$1');
-
-        if (l) {
-          transcriptLines.push(l);
-        }
-      }
-    } else {
-      // Fallback: infer lines that are not bullet metadata
-      for (const raw of lines) {
-        const l = raw.trim();
-        if (!l) continue;
-        if (l.startsWith('#') || l.startsWith('*') || l.startsWith('-') || l.includes('Playground Setup:')) {
-          continue;
-        }
-        let clean = l.startsWith('>') ? l.substring(1).trim() : l;
-        if (clean) transcriptLines.push(clean);
+      // Inferred script line
+      let scriptLine = trimmed.startsWith('>') ? trimmed.substring(1).trim() : trimmed;
+      scriptLine = scriptLine.replace(/`(\[[^\]]+\])`/g, '$1');
+      if (scriptLine) {
+        transcriptLines.push(scriptLine);
       }
     }
 
-    const transcript = transcriptLines.join('\n').trim() || block;
+    const transcript = transcriptLines.join('\n').trim();
+    const cleanForWords = transcript.replace(/\[.*?\]/g, '').trim();
+    const words = cleanForWords ? cleanForWords.split(/\s+/).filter(Boolean).length : 0;
+    const chars = transcript.length;
 
     return {
       paragraph_number: pNum,
@@ -198,6 +180,8 @@ export class ClientReferenceParser {
       accent,
       voice,
       transcript,
+      word_count: words,
+      character_count: chars,
       raw_reference: block,
     };
   }
