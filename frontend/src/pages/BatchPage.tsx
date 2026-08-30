@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  ArrowLeft, Plus, Play, Sparkles, FileDown, FolderOpen, 
+  ArrowLeft, Plus, Play, Sparkles, FileDown, FolderOpen, Search, 
   CheckCircle, AlertTriangle, Layers, RefreshCw, Trash2,
   Zap, Scissors, Film, Video, Download, FileText, Clock, Eye, X, Copy, Check
 } from 'lucide-react';
 import { Project, Batch, VoiceItem } from '../types';
 import { ParagraphCard } from '../components/ParagraphCard';
 import { ReferenceImporter } from '../components/ReferenceImporter';
+import { ScriptWordCheckerModal } from '../components/ScriptWordCheckerModal';
 import { GenerationProgress } from '../components/GenerationProgress';
 import { NativeExporter } from '../services/nativeExporter';
 import { api } from '../api';
@@ -25,6 +26,7 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
   
   const [loading, setLoading] = useState(true);
   const [showImporter, setShowImporter] = useState(false);
+  const [showScriptChecker, setShowScriptChecker] = useState(false);
   const [showNewBatchModal, setShowNewBatchModal] = useState(false);
   const [newBatchName, setNewBatchName] = useState('');
   
@@ -482,6 +484,15 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
               </button>
 
               <button
+                onClick={() => setShowScriptChecker(true)}
+                className="flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs font-bold border border-slate-700 transition-all shadow"
+                title="Verify and audit all script words sequence-wise against your master original script"
+              >
+                <Search className="w-4 h-4 text-emerald-400" />
+                <span>CHECK SCRIPT WORDS</span>
+              </button>
+
+              <button
                 onClick={handleGenerateAll}
                 disabled={generatingAll || currentBatch.ready_count === 0}
                 className="flex items-center space-x-2 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold shadow-lg shadow-blue-600/25 active:scale-95 transition-all"
@@ -767,6 +778,16 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
           </div>
           <p className="text-xs font-mono text-studio-textMuted">Loading workspace batches and paragraphs...</p>
         </div>
+      )}
+
+            {/* Script Word Sequence Auditor Modal */}
+      {showScriptChecker && currentBatch && (
+        <ScriptWordCheckerModal
+          paragraphs={currentBatch.paragraphs}
+          batchNumber={currentBatch.batch_number}
+          projectName={project.name}
+          onClose={() => setShowScriptChecker(false)}
+        />
       )}
 
       {/* Reference Importer Modal */}
