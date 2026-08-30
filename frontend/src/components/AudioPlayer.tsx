@@ -19,7 +19,9 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ generation }) => {
   const [isMuted, setIsMuted] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
 
-  const [resolvedAudioUrl, setResolvedAudioUrl] = useState<string>('');
+  // Initialize immediately with the direct API audio URL to prevent empty src delay
+  const initialUrl = generation.id ? api.getAudioUrl(generation.id, 'wav') : '';
+  const [resolvedAudioUrl, setResolvedAudioUrl] = useState<string>(initialUrl);
 
   useEffect(() => {
     let active = true;
@@ -35,7 +37,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ generation }) => {
           }
         } catch {}
       }
-      if (active) {
+      if (active && generation.id) {
         setResolvedAudioUrl(api.getAudioUrl(generation.id, 'wav'));
       }
     };
@@ -55,7 +57,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ generation }) => {
 
     const onTimeUpdate = () => setCurrentTime(audio.currentTime);
     const onLoadedMetadata = () => {
-      if (audio.duration && !isNaN(audio.duration)) {
+      if (audio.duration && !isNaN(audio.duration) && audio.duration > 0) {
         setDuration(audio.duration);
       }
     };
@@ -63,17 +65,23 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ generation }) => {
       setIsPlaying(false);
       setCurrentTime(0);
     };
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
 
     audio.addEventListener('timeupdate', onTimeUpdate);
     audio.addEventListener('loadedmetadata', onLoadedMetadata);
     audio.addEventListener('ended', onEnded);
+    audio.addEventListener('play', onPlay);
+    audio.addEventListener('pause', onPause);
 
     return () => {
       audio.removeEventListener('timeupdate', onTimeUpdate);
       audio.removeEventListener('loadedmetadata', onLoadedMetadata);
       audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('play', onPlay);
+      audio.removeEventListener('pause', onPause);
     };
-  }, []);
+  }, [resolvedAudioUrl]);
 
   const togglePlay = () => {
     const audio = audioRef.current;
@@ -81,9 +89,10 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ generation }) => {
 
     if (isPlaying) {
       audio.pause();
-      setIsPlaying(false);
     } else {
-      audio.play().then(() => setIsPlaying(true)).catch(console.error);
+      audio.play().then(() => setIsPlaying(true)).catch((err) => {
+        console.error('Audio playback error:', err);
+      });
     }
   };
 
@@ -119,6 +128,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ generation }) => {
   };
 
   const formatTime = (secs: number) => {
+    if (!secs || isNaN(secs)) return '0:00';
     const m = Math.floor(secs / 60);
     const s = Math.floor(secs % 60);
     return `${m}:${s < 10 ? '0' : ''}${s}`;
@@ -126,8 +136,6 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ generation }) => {
 
   return (
     <div className="bg-[#0B1322] border border-[#1F2E4A] rounded-xl p-4 flex flex-col space-y-3 shadow-inner">
-      <audio ref={audioRef} src={resolvedAudioUrl} preload="metadata" />
-
       {/* Top Header / Audio File Info */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
         <div className="flex items-center space-x-2 min-w-0">
@@ -143,7 +151,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ generation }) => {
                 {generation.model.replace('gemini-', '').replace('-preview', '')}
               </span>
               <span className="text-[10px] text-studio-textMuted font-mono">
-                ({formatTime(currentTime)} / {formatTime(duration)})
+                ({formatTime(currentTime)} / {formatTime(duration || generation.duration || 0)})
               </span>
             </div>
           </div>
@@ -164,12 +172,24 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ generation }) => {
                 await NativeExporter.shareAudioUrl(api.getAudioUrl(generation.id, 'wav', true), `paragraph_${generation.paragraph_id || generation.id}.wav`);
               }
             }}
-            className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 text-[11px] font-semibold transition-colors shadow-sm active:scale-95"
+            className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/30 text-[11px] font-semibold transition-colors shadow-sm active:scale-95"
             title="Download Lossless Master WAV file"
           >
             <Download className="w-3 h-3" />
             <span>WAV</span>
           </button>
+
+          {generation.mp3_path && (
+            <a
+              href={api.getAudioUrl(generation.id, 'mp3', true)}
+              download
+              className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-bold border border-slate-700 transition-all"
+              title="Download 320k MP3"
+            >
+              <Download className="w-3 h-3" />
+              <span>MP3</span>
+            </a>
+          )}
 
           <button
             onClick={async () => {
@@ -207,26 +227,38 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ generation }) => {
       {/* Waveform Visualizer */}
       <Waveform
         peaks={generation.waveform?.peaks}
-        duration={duration}
+        duration={duration || generation.duration || 0}
         currentTime={currentTime}
         onSeek={handleSeek}
         height={46}
       />
 
-      {/* Controls Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-        {/* Play / Pause / Replay */}
+      {/* Embedded Native HTML5 Audio Element for Bulletproof Cross-Browser Playback */}
+      <div className="pt-1">
+        <audio
+          ref={audioRef}
+          src={resolvedAudioUrl}
+          controls
+          preload="auto"
+          className="w-full h-8 rounded-lg accent-blue-500 bg-slate-900/80 border border-slate-800"
+        />
+      </div>
+
+      {/* Custom Controls Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-800/60">
+        {/* Play / Pause / Replay Buttons */}
         <div className="flex items-center space-x-2">
           <button
             onClick={togglePlay}
             className="w-8 h-8 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white flex items-center justify-center transition-all shadow-md shadow-blue-600/20"
+            title={isPlaying ? 'Pause narration' : 'Play narration'}
           >
             {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
           </button>
 
           <button
             onClick={() => handleSeek(0)}
-            className="p-1 rounded-lg text-studio-textMuted hover:text-white hover:bg-slate-800 transition-colors"
+            className="p-1.5 rounded-lg text-studio-textMuted hover:text-white hover:bg-slate-800 transition-colors"
             title="Replay from beginning"
           >
             <RotateCcw className="w-3.5 h-3.5" />
@@ -248,7 +280,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ generation }) => {
           ))}
         </div>
 
-        {/* Volume & Additional Downloads */}
+        {/* Volume Controls */}
         <div className="flex items-center space-x-1.5">
           <button onClick={toggleMute} className="text-studio-textMuted hover:text-white transition-colors p-1">
             {isMuted || volume === 0 ? <VolumeX className="w-3.5 h-3.5 text-rose-400" /> : <Volume2 className="w-3.5 h-3.5" />}
@@ -262,17 +294,6 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ generation }) => {
             onChange={handleVolumeChange}
             className="w-12 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500 hidden sm:inline-block"
           />
-
-          {generation.mp3_path && (
-            <a
-              href={api.getAudioUrl(generation.id, 'mp3', true)}
-              download
-              className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold border border-slate-700 transition-all"
-              title="Download MP3"
-            >
-              MP3
-            </a>
-          )}
         </div>
       </div>
     </div>
