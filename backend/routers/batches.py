@@ -400,7 +400,7 @@ def get_batch_word_timestamps(batch_id: int, type: str = "master", db: Session =
 
 
 @router.get("/api/batches/{batch_id}/tight-audio")
-def get_batch_tight_audio(batch_id: int, format: str = "mp4", download: bool = False, db: Session = Depends(get_db)):
+def get_batch_tight_audio(batch_id: int, format: str = "wav", download: bool = False, t: Optional[str] = None, db: Session = Depends(get_db)):
     batch = db.query(Batch).filter(Batch.id == batch_id).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
@@ -443,7 +443,7 @@ def get_batch_tight_audio(batch_id: int, format: str = "mp4", download: bool = F
 
 
 @router.get("/api/batches/{batch_id}/audio")
-def get_batch_combined_audio(batch_id: int, format: str = "wav", download: bool = False, db: Session = Depends(get_db)):
+def get_batch_combined_audio(batch_id: int, format: str = "wav", download: bool = False, t: Optional[str] = None, db: Session = Depends(get_db)):
     batch = db.query(Batch).filter(Batch.id == batch_id).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")

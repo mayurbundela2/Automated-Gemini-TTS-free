@@ -19,23 +19,25 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ generation }) => {
   const [isMuted, setIsMuted] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
 
-  // Initialize immediately with the direct API audio URL to prevent empty src delay
+  // Initialize immediately with direct API audio endpoint for instant browser playback
   const initialUrl = generation.id ? api.getAudioUrl(generation.id, 'wav') : '';
   const [resolvedAudioUrl, setResolvedAudioUrl] = useState<string>(initialUrl);
 
   useEffect(() => {
     let active = true;
     const resolveSource = async () => {
-      const blobKey = generation.wav_path || (generation.paragraph_id ? `para_${generation.paragraph_id}_audio` : '');
-      if (blobKey) {
-        try {
-          const blob = await api.getAudioBlob(blobKey);
-          if (blob && active) {
-            const blobUrl = URL.createObjectURL(blob);
-            setResolvedAudioUrl(blobUrl);
-            return;
-          }
-        } catch {}
+      if (NativeExporter.isNative()) {
+        const blobKey = generation.wav_path || (generation.paragraph_id ? `para_${generation.paragraph_id}_audio` : '');
+        if (blobKey) {
+          try {
+            const blob = await api.getAudioBlob(blobKey);
+            if (blob && active && blob.size > 100) {
+              const blobUrl = URL.createObjectURL(blob);
+              setResolvedAudioUrl(blobUrl);
+              return;
+            }
+          } catch {}
+        }
       }
       if (active && generation.id) {
         setResolvedAudioUrl(api.getAudioUrl(generation.id, 'wav'));
@@ -163,7 +165,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ generation }) => {
             onClick={async () => {
               const blobKey = generation.wav_path || (generation.paragraph_id ? `para_${generation.paragraph_id}_audio` : '');
               let blob: Blob | null = null;
-              if (blobKey) {
+              if (blobKey && NativeExporter.isNative()) {
                 blob = await api.getAudioBlob(blobKey);
               }
               if (blob) {
@@ -196,7 +198,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ generation }) => {
               try {
                 const blobKey = generation.wav_path || (generation.paragraph_id ? `para_${generation.paragraph_id}_audio` : '');
                 let blob: Blob | null = null;
-                if (blobKey) {
+                if (blobKey && NativeExporter.isNative()) {
                   blob = await api.getAudioBlob(blobKey);
                 }
                 const transcript = generation.raw_prompt || '';
@@ -233,7 +235,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ generation }) => {
         height={46}
       />
 
-      {/* Embedded Native HTML5 Audio Element for Bulletproof Cross-Browser Playback */}
+      {/* Embedded Native HTML5 Audio Element */}
       <div className="pt-1">
         <audio
           ref={audioRef}

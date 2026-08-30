@@ -130,26 +130,33 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
     let active = true;
     const resolveBatchAudios = async () => {
       if (selectedBatchId) {
-        try {
-          const mBlob = await api.getAudioBlob(`batch_${selectedBatchId}_master_audio`);
-          if (mBlob && active) {
-            setMasterAudioUrl(URL.createObjectURL(mBlob));
-          } else if (active) {
-            setMasterAudioUrl(`${api.getBatchAudioUrl(selectedBatchId, 'wav')}?t=${audioCacheKey}`);
+        if (NativeExporter.isNative()) {
+          try {
+            const mBlob = await api.getAudioBlob(`batch_${selectedBatchId}_master_audio`);
+            if (mBlob && active && mBlob.size > 100) {
+              setMasterAudioUrl(URL.createObjectURL(mBlob));
+            } else if (active) {
+              setMasterAudioUrl(`${api.getBatchAudioUrl(selectedBatchId, 'wav')}&t=${audioCacheKey}`);
+            }
+          } catch {
+            if (active) setMasterAudioUrl(`${api.getBatchAudioUrl(selectedBatchId, 'wav')}&t=${audioCacheKey}`);
           }
-        } catch {
-          if (active) setMasterAudioUrl(`${api.getBatchAudioUrl(selectedBatchId, 'wav')}?t=${audioCacheKey}`);
-        }
 
-        try {
-          const tBlob = await api.getAudioBlob(`batch_${selectedBatchId}_tight_audio`);
-          if (tBlob && active) {
-            setTightAudioUrl(URL.createObjectURL(tBlob));
-          } else if (active) {
-            setTightAudioUrl(`${api.getBatchTightAudioUrl(selectedBatchId, 'wav')}?t=${audioCacheKey}`);
+          try {
+            const tBlob = await api.getAudioBlob(`batch_${selectedBatchId}_tight_audio`);
+            if (tBlob && active && tBlob.size > 100) {
+              setTightAudioUrl(URL.createObjectURL(tBlob));
+            } else if (active) {
+              setTightAudioUrl(`${api.getBatchTightAudioUrl(selectedBatchId, 'wav')}&t=${audioCacheKey}`);
+            }
+          } catch {
+            if (active) setTightAudioUrl(`${api.getBatchTightAudioUrl(selectedBatchId, 'wav')}&t=${audioCacheKey}`);
           }
-        } catch {
-          if (active) setTightAudioUrl(`${api.getBatchTightAudioUrl(selectedBatchId, 'wav')}?t=${audioCacheKey}`);
+        } else {
+          if (active) {
+            setMasterAudioUrl(`${api.getBatchAudioUrl(selectedBatchId, 'wav')}&t=${audioCacheKey}`);
+            setTightAudioUrl(`${api.getBatchTightAudioUrl(selectedBatchId, 'wav')}&t=${audioCacheKey}`);
+          }
         }
       }
     };
@@ -555,7 +562,7 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
                       key={`combined-${audioCacheKey}`}
                       controls
                       className="w-full h-10 rounded-xl accent-indigo-500 bg-slate-900/60"
-                      src={masterAudioUrl || `${api.getBatchAudioUrl(currentBatch.id, 'wav')}?t=${audioCacheKey}`}
+                      src={masterAudioUrl || `${api.getBatchAudioUrl(currentBatch.id, 'wav')}&t=${audioCacheKey}`}
                     />
                   ) : (
                     <button
@@ -661,7 +668,7 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
                       key={`tight-${audioCacheKey}`}
                       controls
                       className="w-full h-10 rounded-xl accent-emerald-500 bg-slate-900/60"
-                      src={tightAudioUrl || `${api.getBatchTightAudioUrl(currentBatch.id, 'wav')}?t=${audioCacheKey}`}
+                      src={tightAudioUrl || `${api.getBatchTightAudioUrl(currentBatch.id, 'wav')}&t=${audioCacheKey}`}
                     />
                   ) : (
                     <button
