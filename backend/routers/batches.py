@@ -1,3 +1,5 @@
+import subprocess
+from pathlib import Path
 import os
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
@@ -182,11 +184,13 @@ def combine_batch_audio_files(batch_id: int, db: Session) -> Dict[str, Any]:
     for p in paragraphs:
         latest_gen = db.query(Generation).filter(Generation.paragraph_id == p.id, Generation.status == "COMPLETED").order_by(Generation.created_at.desc()).first()
         dur = latest_gen.duration if (latest_gen and latest_gen.duration) else 2.5
+        wav_p = latest_gen.wav_path if latest_gen else None
         paras_meta.append({
             "paragraph_number": p.paragraph_number,
             "part_title": p.part_number or f"Paragraph {p.paragraph_number}",
             "transcript": p.transcript,
-            "duration": dur
+            "duration": dur,
+            "wav_path": wav_p
         })
 
     SubtitleService.generate_batch_subtitles(
@@ -194,6 +198,7 @@ def combine_batch_audio_files(batch_id: int, db: Session) -> Dict[str, Any]:
         output_base_dir=batch_dir,
         prefix="full_batch_narration",
         full_wav_path=combined_wav,
+        silence_gap_seconds=0.4,
         words_per_caption=4
     )
 
@@ -240,41 +245,92 @@ def tighten_batch_audio_files(batch_id: int, db: Session, silence_threshold: flo
     tight_mp3 = str(batch_dir / "full_batch_tight.mp3")
     tight_mp4 = str(batch_dir / "full_batch_tight.mp4")
 
-    result = AudioConverter.tighten_and_trim_silence(
-        input_wav=batch.combined_wav_path,
-        output_wav=tight_wav,
-        output_mp3=tight_mp3,
-        output_mp4=tight_mp4,
-        silence_duration_threshold=silence_threshold,
-        silence_db_threshold="-42dB",
-        ffmpeg_path=ffmpeg_path,
-        bitrate=bitrate
+    # Per-paragraph precision tight trimming
+    paragraphs = db.query(Paragraph).filter(Paragraph.batch_id == batch_id).order_by(Paragraph.paragraph_number.asc(), Paragraph.id.asc()).all()
+    paras_tight_meta = []
+    tight_wav_paths = []
+    inter_para_tight_gap = 0.06
+
+    for p in paragraphs:
+        latest_gen = db.query(Generation).filter(Generation.paragraph_id == p.id, Generation.status == "COMPLETED").order_by(Generation.created_at.desc()).first()
+        if not latest_gen or not latest_gen.wav_path or not os.path.exists(latest_gen.wav_path):
+            continue
+
+        p_wav = Path(latest_gen.wav_path)
+        p_tight_wav = p_wav.parent / "narration_tight.wav"
+        
+        # Trim silence on individual paragraph WAV
+        filter_str = f"silenceremove=start_periods=1:start_duration=0.04:start_threshold=-42dB:stop_periods=-1:stop_duration={silence_threshold}:stop_threshold=-42dB"
+        cmd_p_trim = [ffmpeg_path, "-y", "-i", str(p_wav), "-af", filter_str, str(p_tight_wav)]
+        try:
+            subprocess.run(cmd_p_trim, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        except Exception:
+            for fallback_bin in ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]:
+                if os.path.exists(fallback_bin):
+                    cmd_p_trim[0] = fallback_bin
+                    subprocess.run(cmd_p_trim, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+                    break
+
+        if not p_tight_wav.exists() or p_tight_wav.stat().st_size < 1000:
+            # Fallback to original WAV if silence removal trimmed completely
+            p_tight_wav = p_wav
+
+        tight_info = AudioConverter.get_audio_info(str(p_tight_wav))
+        tight_dur = tight_info.get("duration", 2.0)
+        tight_wav_paths.append(str(p_tight_wav))
+
+        paras_tight_meta.append({
+            "paragraph_number": p.paragraph_number,
+            "part_title": p.part_number or f"Paragraph {p.paragraph_number}",
+            "transcript": p.transcript,
+            "duration": tight_dur,
+            "wav_path": str(p_tight_wav)
+        })
+
+    # Combine tight paragraph WAVs into full_batch_tight.wav
+    if tight_wav_paths:
+        combine_tight_res = AudioConverter.combine_audio_files(
+            wav_file_paths=tight_wav_paths,
+            output_wav_path=tight_wav,
+            output_mp3_path=tight_mp3,
+            silence_gap_seconds=inter_para_tight_gap,
+            ffmpeg_path=ffmpeg_path,
+            bitrate=bitrate
+        )
+        tight_dur = combine_tight_res.get("duration", 0.0)
+    else:
+        # Fallback to combined wav trim
+        combine_tight_res = AudioConverter.tighten_and_trim_silence(
+            input_wav=batch.combined_wav_path,
+            output_wav=tight_wav,
+            output_mp3=tight_mp3,
+            silence_duration_threshold=silence_threshold,
+            silence_db_threshold="-42dB",
+            ffmpeg_path=ffmpeg_path,
+            bitrate=bitrate
+        )
+        tight_dur = combine_tight_res.get("duration", 0.0)
+
+    # Render timeline MP4 video
+    AudioConverter.create_timeline_mp4_from_audio(
+        input_audio_path=tight_wav,
+        output_mp4_path=tight_mp4,
+        ffmpeg_path=ffmpeg_path
     )
 
     batch.tight_wav_path = tight_wav
     batch.tight_mp3_path = tight_mp3
     batch.tight_mp4_path = tight_mp4
-    batch.tight_duration = result["duration"]
+    batch.tight_duration = tight_dur
     db.commit()
 
-    # Generate Tight Subtitles directly aligned with tight_wav
-    paragraphs = db.query(Paragraph).filter(Paragraph.batch_id == batch_id).order_by(Paragraph.paragraph_number.asc(), Paragraph.id.asc()).all()
-    paras_meta = []
-    for p in paragraphs:
-        latest_gen = db.query(Generation).filter(Generation.paragraph_id == p.id, Generation.status == "COMPLETED").order_by(Generation.created_at.desc()).first()
-        dur = latest_gen.duration if (latest_gen and latest_gen.duration) else 2.5
-        paras_meta.append({
-            "paragraph_number": p.paragraph_number,
-            "part_title": p.part_number or f"Paragraph {p.paragraph_number}",
-            "transcript": p.transcript,
-            "duration": dur
-        })
-
+    # Generate Tight Subtitles anchored frame-accurately to each tight paragraph
     SubtitleService.generate_batch_subtitles(
-        paragraphs_data=paras_meta,
+        paragraphs_data=paras_tight_meta,
         output_base_dir=batch_dir,
         prefix="full_batch_tight",
         full_wav_path=tight_wav,
+        silence_gap_seconds=inter_para_tight_gap,
         words_per_caption=4
     )
 
@@ -285,9 +341,9 @@ def tighten_batch_audio_files(batch_id: int, db: Session, silence_threshold: flo
         "wav_path": tight_wav,
         "mp3_path": tight_mp3,
         "mp4_path": tight_mp4,
-        "duration": result["duration"],
+        "duration": tight_dur,
         "original_duration": batch.combined_duration,
-        "saved_seconds": round((batch.combined_duration or 0) - result["duration"], 2),
+        "saved_seconds": round((batch.combined_duration or 0) - tight_dur, 2),
         "waveform": waveform
     }
 

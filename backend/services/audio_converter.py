@@ -222,21 +222,48 @@ class AudioConverter:
         # 3. Create 1080p MP4 timeline video
         saved_mp4 = None
         if output_mp4:
-            out_mp4_path = Path(output_mp4)
-            cmd_mp4 = [
-                ffmpeg_path, "-y",
-                "-f", "lavfi", "-i", "color=c=0x0c121e:s=1920x1080:r=30",
-                "-i", str(out_wav_path),
-                "-c:v", "libx264", "-tune", "stillimage", "-pix_fmt", "yuv420p",
-                "-c:a", "aac", "-b:a", "320k",
-                "-shortest",
-                str(out_mp4_path)
-            ]
-            try:
-                subprocess.run(cmd_mp4, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-                saved_mp4 = str(out_mp4_path)
-            except Exception as e:
-                print(f"[AudioConverter] Warning: MP4 generation failed: {e}")
+            saved_mp4 = cls.create_timeline_mp4_from_audio(
+                input_audio_path=str(out_wav_path),
+                output_mp4_path=output_mp4,
+                ffmpeg_path=ffmpeg_path
+            )
+
+    @classmethod
+    def create_timeline_mp4_from_audio(
+        cls,
+        input_audio_path: str,
+        output_mp4_path: str,
+        ffmpeg_path: str = "ffmpeg"
+    ) -> Optional[str]:
+        """
+        Creates a clean 1080p timeline video with 320k AAC audio ready for CapCut and Premiere Pro import.
+        """
+        in_audio = Path(input_audio_path)
+        out_mp4 = Path(output_mp4_path)
+        out_mp4.parent.mkdir(parents=True, exist_ok=True)
+
+        cmd_mp4 = [
+            ffmpeg_path, "-y",
+            "-f", "lavfi", "-i", "color=c=0x0c121e:s=1920x1080:r=30",
+            "-i", str(in_audio),
+            "-c:v", "libx264", "-tune", "stillimage", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "320k",
+            "-shortest",
+            str(out_mp4)
+        ]
+        try:
+            subprocess.run(cmd_mp4, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+            return str(out_mp4)
+        except Exception:
+            for fallback_bin in ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]:
+                if os.path.exists(fallback_bin):
+                    cmd_mp4[0] = fallback_bin
+                    try:
+                        subprocess.run(cmd_mp4, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+                        return str(out_mp4)
+                    except Exception:
+                        pass
+            return None
 
         info = cls.get_audio_info(str(out_wav_path))
         return {
