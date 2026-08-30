@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { FileDown, Sparkles, Check, X, AlertTriangle, ArrowRight, Eye, Lightbulb, Copy, ShieldCheck } from 'lucide-react';
+import { FileDown, Sparkles, Check, X, AlertTriangle, ArrowRight, Eye, Lightbulb, Copy } from 'lucide-react';
 import { api } from '../api';
 import { PromptHelpModal, AI_DIRECTOR_PROMPT } from './PromptHelpModal';
-import { ScriptWordCheckerModal } from './ScriptWordCheckerModal';
 
 interface ReferenceImporterProps {
   batchId: number;
@@ -23,7 +22,6 @@ export const ReferenceImporter: React.FC<ReferenceImporterProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPromptHelp, setShowPromptHelp] = useState(false);
-  const [showWordChecker, setShowWordChecker] = useState(false);
 
   const sampleReference = `Part 1: HOOK [0:00–0:11]
 Playground Setup:
@@ -89,7 +87,7 @@ Ayurveda ke anusaar cannabis ko ek cooling medicinal herb ki tarah use kiya gaya
     setLoading(true);
     setError(null);
     try {
-      await api.importReference(batchId, rawText, defaultVoice, parsedData);
+      await api.importReference(batchId, rawText, defaultVoice);
       onImportSuccess();
       onClose();
     } catch (e: any) {
@@ -183,67 +181,28 @@ Ayurveda ke anusaar cannabis ko ek cooling medicinal herb ki tarah use kiya gaya
               </div>
             ) : (
             <div className="space-y-4">
-              {/* Verification & Metrics Top Bar */}
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-gradient-to-r from-blue-900/40 via-indigo-900/30 to-purple-900/30 border border-blue-500/30 p-3.5 rounded-2xl">
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono text-xs font-bold border border-emerald-500/30 flex items-center space-x-1">
-                      <Check className="w-3 h-3" />
-                      <span>{parsedData.length} PARTS DETECTED</span>
-                    </span>
-                    <span className="text-xs font-semibold text-white">
-                      {parsedData.reduce((acc, p) => acc + (p.word_count || 0), 0)} Total Spoken Words
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-300 mt-1">
-                    Verify that all words from your original script are present below before importing.
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap items-center space-x-2 self-end sm:self-auto flex-shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setShowWordChecker(true)}
-                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold shadow-md shadow-indigo-600/20 active:scale-95 transition-all"
-                    title="Open word-to-word script checker to scan against master script"
-                  >
-                    <ShieldCheck className="w-3.5 h-3.5" />
-                    <span>CHECK SCRIPT WORDS</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const fullMerged = parsedData.map((p) => p.transcript).join('\n\n');
-                      navigator.clipboard.writeText(fullMerged);
-                      alert('Full spoken script copied to clipboard!');
-                    }}
-                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-sm active:scale-95 transition-all"
-                    title="Copy full merged spoken script to clipboard"
-                  >
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>COPY FULL SCRIPT</span>
-                  </button>
-
-                  <button
-                    onClick={() => setStep('paste')}
-                    className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition-colors"
-                  >
-                    &larr; Re-paste
-                  </button>
-                </div>
+              <div className="flex items-center justify-between bg-blue-500/10 border border-blue-500/20 p-3 rounded-xl text-xs text-blue-300">
+                <span className="font-semibold">
+                  Detected {parsedData.length} Paragraph(s) ready for import
+                </span>
+                <button
+                  onClick={() => setStep('paste')}
+                  className="text-blue-400 hover:text-blue-200 font-medium underline"
+                >
+                  &larr; Back to Paste
+                </button>
               </div>
 
-              {/* Parsed Preview Cards with Editable Transcripts */}
+              {/* Parsed Preview Table */}
               <div className="space-y-3">
                 {parsedData.map((item, idx) => (
                   <div
                     key={idx}
                     className="bg-[#0B101B] border border-studio-cardBorder rounded-xl p-4 space-y-2 hover:border-slate-700 transition-colors"
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2">
-                        <span className="px-2 py-0.5 rounded bg-blue-600/20 text-blue-400 font-mono text-xs font-bold border border-blue-500/20">
+                        <span className="px-2 py-0.5 rounded bg-blue-600/20 text-blue-400 font-mono text-xs font-bold">
                           {item.part_number || `Part ${item.paragraph_number}`}
                         </span>
                         <span className="text-xs font-semibold text-white">
@@ -254,50 +213,19 @@ Ayurveda ke anusaar cannabis ko ek cooling medicinal herb ki tarah use kiya gaya
                         </span>
                       </div>
 
-                      <div className="flex items-center space-x-2">
-                        <span className="text-xs font-mono px-2 py-0.5 bg-slate-800 text-slate-300 rounded border border-slate-700">
-                          {item.word_count || (item.transcript ? item.transcript.replace(/\[.*?\]/g, '').trim().split(/\s+/).filter(Boolean).length : 0)} words
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            navigator.clipboard.writeText(item.transcript);
-                            alert(`Part ${idx + 1} transcript copied!`);
-                          }}
-                          className="p-1 rounded text-slate-400 hover:text-white bg-slate-800/80 border border-slate-700"
-                          title="Copy this part's transcript"
-                        >
-                          <Copy className="w-3 h-3" />
-                        </button>
+                      <div className="text-xs font-mono text-studio-textMuted">
+                        {item.word_count} words | {item.character_count} chars
                       </div>
                     </div>
 
                     {item.scene && (
-                      <p className="text-[11px] text-studio-textMuted">
+                      <p className="text-[11px] text-studio-textMuted truncate">
                         <strong className="text-slate-400 font-medium">Scene:</strong> {item.scene}
                       </p>
                     )}
 
-                    {/* Editable Spoken Transcript Box */}
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between text-[10px] text-studio-textMuted font-mono">
-                        <span>Spoken Transcript (Editable)</span>
-                        <span>Inline emotion tags like [serious] are preserved</span>
-                      </div>
-                      <textarea
-                        value={item.transcript}
-                        onChange={(e) => {
-                          const updated = [...parsedData];
-                          updated[idx].transcript = e.target.value;
-                          const cleanWords = e.target.value.replace(/\[.*?\]/g, '').trim();
-                          updated[idx].word_count = cleanWords ? cleanWords.split(/\s+/).filter(Boolean).length : 0;
-                          updated[idx].character_count = e.target.value.length;
-                          setParsedData(updated);
-                        }}
-                        rows={3}
-                        className="w-full bg-[#080D1A] border border-slate-800 focus:border-blue-500 rounded-lg p-2.5 text-xs font-mono text-slate-200 focus:outline-none resize-y leading-relaxed"
-                        placeholder="Spoken words..."
-                      />
+                    <div className="bg-slate-900/80 p-2.5 rounded-lg border border-slate-800 text-xs font-mono text-slate-200 line-clamp-3">
+                      {item.transcript}
                     </div>
                   </div>
                 ))}
@@ -337,32 +265,6 @@ Ayurveda ke anusaar cannabis ko ek cooling medicinal herb ki tarah use kiya gaya
         </div>
       </div>
     </div>
-
-    {/* Word-to-Word Script Checker Modal */}
-    <ScriptWordCheckerModal
-      isOpen={showWordChecker}
-      onClose={() => setShowWordChecker(false)}
-      paragraphs={parsedData}
-      onUpdateParagraph={(index, updatedTranscript) => {
-        const updated = [...parsedData];
-        updated[index].transcript = updatedTranscript;
-        const cleanWords = updatedTranscript.replace(/\[.*?\]/g, '').trim();
-        updated[index].word_count = cleanWords ? cleanWords.split(/\s+/).filter(Boolean).length : 0;
-        updated[index].character_count = updatedTranscript.length;
-        setParsedData(updated);
-      }}
-      onUpdateAllParagraphs={(updatedParas) => {
-        const updated = updatedParas.map((p) => {
-          const cleanWords = (p.transcript || '').replace(/\[.*?\]/g, '').trim();
-          return {
-            ...p,
-            word_count: cleanWords ? cleanWords.split(/\s+/).filter(Boolean).length : 0,
-            character_count: (p.transcript || '').length,
-          };
-        });
-        setParsedData(updated);
-      }}
-    />
 
     {/* AI Director Prompt Guide Modal */}
     <PromptHelpModal isOpen={showPromptHelp} onClose={() => setShowPromptHelp(false)} />

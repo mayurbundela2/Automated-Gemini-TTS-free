@@ -50,13 +50,24 @@ def create_project(data: ProjectCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(project)
 
+    # Auto-initialize Batch 01 for instant workspace readiness
+    batch = Batch(
+        project_id=project.id,
+        batch_number=1,
+        name="Batch 01",
+        status="DRAFT"
+    )
+    db.add(batch)
+    db.commit()
+    db.refresh(project)
+
     return ProjectResponse(
         id=project.id,
         name=project.name,
         description=project.description,
         created_at=project.created_at,
         updated_at=project.updated_at,
-        batch_count=0,
+        batch_count=1,
         paragraph_count=0,
         completed_generations=0
     )

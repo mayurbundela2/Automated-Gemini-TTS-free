@@ -2,12 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { 
   ArrowLeft, Plus, Play, Sparkles, FileDown, FolderOpen, 
   CheckCircle, AlertTriangle, Layers, RefreshCw, Trash2,
-  Zap, Scissors, Film, Video, Download, FileText, Clock, Eye, X, Copy, Check, ShieldCheck
+  Zap, Scissors, Film, Video, Download, FileText, Clock, Eye, X, Copy, Check
 } from 'lucide-react';
 import { Project, Batch, VoiceItem } from '../types';
 import { ParagraphCard } from '../components/ParagraphCard';
 import { ReferenceImporter } from '../components/ReferenceImporter';
-import { ScriptWordCheckerModal } from '../components/ScriptWordCheckerModal';
 import { GenerationProgress } from '../components/GenerationProgress';
 import { NativeExporter } from '../services/nativeExporter';
 import { api } from '../api';
@@ -26,7 +25,6 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
   
   const [loading, setLoading] = useState(true);
   const [showImporter, setShowImporter] = useState(false);
-  const [showScriptChecker, setShowScriptChecker] = useState(false);
   const [showNewBatchModal, setShowNewBatchModal] = useState(false);
   const [newBatchName, setNewBatchName] = useState('');
   
@@ -46,13 +44,24 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
 
   const [masterAudioUrl, setMasterAudioUrl] = useState<string>('');
   const [tightAudioUrl, setTightAudioUrl] = useState<string>('');
+  const [tightening, setTightening] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
+  const [audioCacheKey, setAudioCacheKey] = useState<number>(Date.now());
+  const [silenceThreshold, setSilenceThreshold] = useState<number>(0.18);
+  const [showSubtitleModal, setShowSubtitleModal] = useState(false);
+  const [subtitleModalType, setSubtitleModalType] = useState<'master' | 'tight'>('master');
+  const [wordTimestamps, setWordTimestamps] = useState<any>(null);
+  const [loadingTimestamps, setLoadingTimestamps] = useState(false);
+  const [copiedWords, setCopiedWords] = useState(false);
 
   const fetchBatches = async () => {
     try {
       const data = await api.getBatches(project.id);
       setBatches(data);
-      if (data.length > 0 && !selectedBatchId) {
-        setSelectedBatchId(data[0].id);
+      if (data.length > 0) {
+        if (!selectedBatchId || !data.some((b) => b.id === selectedBatchId)) {
+          setSelectedBatchId(data[0].id);
+        }
       }
     } catch (e) {
       console.error(e);
@@ -70,16 +79,49 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
   };
 
   useEffect(() => {
+    let active = true;
     const init = async () => {
       setLoading(true);
-      await Promise.all([fetchBatches(), api.getVoices().then(setVoices)]);
-      setLoading(false);
+      try {
+        const [batchList, voiceList] = await Promise.all([
+          api.getBatches(project.id),
+          api.getVoices(),
+        ]);
+        if (!active) return;
+        setVoices(voiceList);
+        setBatches(batchList);
+
+        if (batchList.length > 0) {
+          const firstId = batchList[0].id;
+          setSelectedBatchId(firstId);
+          const firstBatch = await api.getBatch(firstId);
+          if (active) setCurrentBatch(firstBatch);
+        } else {
+          try {
+            const newB = await api.createBatch(project.id, 'Batch 01');
+            if (active) {
+              setBatches([newB]);
+              setSelectedBatchId(newB.id);
+              setCurrentBatch(newB);
+            }
+          } catch (e) {
+            console.error('Auto-create batch error:', e);
+          }
+        }
+      } catch (e) {
+        console.error('BatchPage init error:', e);
+      } finally {
+        if (active) setLoading(false);
+      }
     };
     init();
+    return () => {
+      active = false;
+    };
   }, [project.id]);
 
   useEffect(() => {
-    if (selectedBatchId) {
+    if (selectedBatchId && !loading) {
       fetchCurrentBatch();
     }
   }, [selectedBatchId]);
@@ -93,18 +135,22 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
           if (mBlob && active) {
             setMasterAudioUrl(URL.createObjectURL(mBlob));
           } else if (active) {
-            setMasterAudioUrl(`${api.getBatchAudioUrl(selectedBatchId, 'wav')}?t=${Date.now()}`);
+            setMasterAudioUrl(`${api.getBatchAudioUrl(selectedBatchId, 'wav')}?t=${audioCacheKey}`);
           }
-        } catch {}
+        } catch {
+          if (active) setMasterAudioUrl(`${api.getBatchAudioUrl(selectedBatchId, 'wav')}?t=${audioCacheKey}`);
+        }
 
         try {
           const tBlob = await api.getAudioBlob(`batch_${selectedBatchId}_tight_audio`);
           if (tBlob && active) {
             setTightAudioUrl(URL.createObjectURL(tBlob));
           } else if (active) {
-            setTightAudioUrl(`${api.getBatchTightAudioUrl(selectedBatchId, 'wav')}?t=${Date.now()}`);
+            setTightAudioUrl(`${api.getBatchTightAudioUrl(selectedBatchId, 'wav')}?t=${audioCacheKey}`);
           }
-        } catch {}
+        } catch {
+          if (active) setTightAudioUrl(`${api.getBatchTightAudioUrl(selectedBatchId, 'wav')}?t=${audioCacheKey}`);
+        }
       }
     };
 
@@ -112,7 +158,7 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
     return () => {
       active = false;
     };
-  }, [selectedBatchId, currentBatch?.combined_audio?.duration, currentBatch?.tight_audio?.duration]);
+  }, [selectedBatchId, audioCacheKey, currentBatch?.combined_audio?.duration, currentBatch?.tight_audio?.duration]);
 
   const handleCreateBatch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -212,15 +258,7 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
     }
   };
 
-  const [tightening, setTightening] = useState(false);
-  const [rebuilding, setRebuilding] = useState(false);
-  const [audioCacheKey, setAudioCacheKey] = useState<number>(Date.now());
-  const [silenceThreshold, setSilenceThreshold] = useState<number>(0.18);
-  const [showSubtitleModal, setShowSubtitleModal] = useState(false);
-  const [subtitleModalType, setSubtitleModalType] = useState<'master' | 'tight'>('master');
-  const [wordTimestamps, setWordTimestamps] = useState<any>(null);
-  const [loadingTimestamps, setLoadingTimestamps] = useState(false);
-  const [copiedWords, setCopiedWords] = useState(false);
+
 
   const handleCombineBatchAudio = async () => {
     if (!selectedBatchId) return;
@@ -429,33 +467,6 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
             {/* Main Batch Action Buttons */}
             <div className="flex flex-wrap items-center gap-2.5">
               <button
-                onClick={() => setShowScriptChecker(true)}
-                disabled={!currentBatch.paragraphs?.length}
-                className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-indigo-600/30 to-purple-600/30 hover:from-indigo-600/50 hover:to-purple-600/50 text-indigo-200 text-xs font-bold border border-indigo-500/40 transition-all shadow active:scale-95 disabled:opacity-50"
-                title="Scan and verify original master script word-by-word against voiceover paragraphs"
-              >
-                <ShieldCheck className="w-3.5 h-3.5 text-indigo-300" />
-                <span>CHECK SCRIPT</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  const fullScript = (currentBatch.paragraphs || []).map((p) => p.transcript).filter(Boolean).join('\n\n');
-                  if (!fullScript) {
-                    alert('No paragraph transcripts to copy.');
-                    return;
-                  }
-                  navigator.clipboard.writeText(fullScript);
-                  alert('Full narration script copied to clipboard!');
-                }}
-                className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs font-bold border border-slate-700 transition-all shadow"
-                title="Copy all paragraph transcripts combined"
-              >
-                <Copy className="w-3.5 h-3.5 text-indigo-400" />
-                <span>COPY SCRIPT</span>
-              </button>
-
-              <button
                 onClick={() => setShowImporter(true)}
                 className="flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 text-xs font-bold border border-slate-700 transition-all shadow"
               >
@@ -481,6 +492,18 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
                   </>
                 )}
               </button>
+
+              {currentBatch.completed_count > 0 && (
+                <button
+                  onClick={handleRebuildAll}
+                  disabled={rebuilding}
+                  className="flex items-center space-x-2 px-3.5 py-2 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/50 active:scale-95 text-indigo-200 text-xs font-bold border border-indigo-500/40 transition-all shadow"
+                  title="Rebuild full combined narration and tight timelines"
+                >
+                  <RefreshCw className={`w-4 h-4 text-indigo-400 ${rebuilding ? 'animate-spin' : ''}`} />
+                  <span>{rebuilding ? 'REBUILDING FULL NARRATION...' : 'REBUILD FULL NARRATION'}</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -493,7 +516,7 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
           />
 
           {/* Unified Full Batch Audio Suite */}
-          {currentBatch.combined_audio && (
+          {currentBatch.completed_count > 0 && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               {/* Deck 1: Master Sequential Narration */}
               <div className="bg-gradient-to-br from-[#0F1B30] to-[#142340] border border-indigo-500/40 rounded-2xl p-5 shadow-2xl flex flex-col justify-between space-y-4">
@@ -508,7 +531,9 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
                           MASTER NARRATION
                         </h3>
                         <p className="text-[11px] text-slate-300 font-mono">
-                          All {currentBatch.completed_count} parts joined &bull; <strong>{currentBatch.combined_audio.duration}s</strong>
+                          {currentBatch.combined_audio
+                            ? `All ${currentBatch.completed_count} parts joined • ${currentBatch.combined_audio.duration}s`
+                            : `${currentBatch.completed_count} parts ready to assemble`}
                         </p>
                       </div>
                     </div>
@@ -520,51 +545,63 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
                       title="Rebuild master audio track"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${rebuilding ? 'animate-spin' : ''}`} />
-                      <span>Rebuild</span>
+                      <span>{rebuilding ? 'Rebuilding...' : 'Rebuild'}</span>
                     </button>
                   </div>
 
-                  {/* Master Audio Element */}
-                  <audio
-                    key={`combined-${audioCacheKey}`}
-                    controls
-                    className="w-full h-10 rounded-xl accent-indigo-500 bg-slate-900/60"
-                    src={masterAudioUrl || `${api.getBatchAudioUrl(currentBatch.id, 'wav')}?t=${audioCacheKey}`}
-                  />
+                  {/* Master Audio Element / CTA */}
+                  {currentBatch.combined_audio ? (
+                    <audio
+                      key={`combined-${audioCacheKey}`}
+                      controls
+                      className="w-full h-10 rounded-xl accent-indigo-500 bg-slate-900/60"
+                      src={masterAudioUrl || `${api.getBatchAudioUrl(currentBatch.id, 'wav')}?t=${audioCacheKey}`}
+                    />
+                  ) : (
+                    <button
+                      onClick={handleCombineBatchAudio}
+                      className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] text-white text-xs font-bold transition-all shadow flex items-center justify-center space-x-2"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      <span>Assemble Master Narration ({currentBatch.completed_count} Parts)</span>
+                    </button>
+                  )}
                 </div>
 
                 {/* Master Actions Bar */}
-                <div className="pt-3 border-t border-indigo-500/20 flex flex-wrap items-center justify-between gap-2">
-                  <button
-                    onClick={() => handleViewTimestamps('master')}
-                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-500/40 text-xs font-semibold transition-all active:scale-95"
-                  >
-                    <FileText className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>Subtitles & Timestamps</span>
-                  </button>
-
-                  <div className="flex items-center space-x-1.5">
+                {currentBatch.combined_audio && (
+                  <div className="pt-3 border-t border-indigo-500/20 flex flex-wrap items-center justify-between gap-2">
                     <button
-                      onClick={() => handleExportAudio('master', 'wav')}
-                      className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow transition-all active:scale-95 flex items-center space-x-1"
-                      title="Export Lossless Master WAV"
+                      onClick={() => handleViewTimestamps('master')}
+                      className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-500/40 text-xs font-semibold transition-all active:scale-95"
                     >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>WAV</span>
+                      <FileText className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Subtitles & Timestamps</span>
                     </button>
 
-                    {currentBatch.combined_audio.mp3_path && (
+                    <div className="flex items-center space-x-1.5">
                       <button
-                        onClick={() => handleExportAudio('master', 'mp3')}
-                        className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition-all active:scale-95 flex items-center space-x-1"
-                        title="Export 320k Master MP3"
+                        onClick={() => handleExportAudio('master', 'wav')}
+                        className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow transition-all active:scale-95 flex items-center space-x-1"
+                        title="Export Lossless Master WAV"
                       >
                         <Download className="w-3.5 h-3.5" />
-                        <span>MP3</span>
+                        <span>WAV</span>
                       </button>
-                    )}
+
+                      {currentBatch.combined_audio.mp3_path && (
+                        <button
+                          onClick={() => handleExportAudio('master', 'mp3')}
+                          className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 transition-all active:scale-95 flex items-center space-x-1"
+                          title="Export 320k Master MP3"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>MP3</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Deck 2: No-Pause AI Edit & Timeline Track */}
@@ -580,9 +617,9 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
                           <h3 className="font-extrabold text-sm text-white tracking-wide">
                             NO-PAUSE EDIT
                           </h3>
-                          {currentBatch.tight_audio && (
+                          {currentBatch.tight_audio && currentBatch.combined_audio && (
                             <span className="text-[10px] uppercase font-mono px-2 py-0.5 bg-emerald-500/20 text-emerald-300 rounded-full border border-emerald-500/30 font-bold whitespace-nowrap">
-                              🔥 Saved {roundTwo((currentBatch.combined_audio?.duration || 0) - currentBatch.tight_audio.duration)}s
+                              🔥 Saved {roundTwo((currentBatch.combined_audio.duration || 0) - currentBatch.tight_audio.duration)}s
                             </span>
                           )}
                         </div>
@@ -619,13 +656,22 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
                   </div>
 
                   {/* Tight Audio Element */}
-                  {currentBatch.tight_audio && (
+                  {currentBatch.tight_audio ? (
                     <audio
                       key={`tight-${audioCacheKey}`}
                       controls
                       className="w-full h-10 rounded-xl accent-emerald-500 bg-slate-900/60"
                       src={tightAudioUrl || `${api.getBatchTightAudioUrl(currentBatch.id, 'wav')}?t=${audioCacheKey}`}
                     />
+                  ) : (
+                    <button
+                      onClick={handleTightenBatchAudio}
+                      disabled={tightening}
+                      className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] text-white text-xs font-bold transition-all shadow flex items-center justify-center space-x-2"
+                    >
+                      <Zap className="w-4 h-4" />
+                      <span>{tightening ? 'Trimming Silences...' : 'Trim Pauses & Generate Timeline'}</span>
+                    </button>
                   )}
                 </div>
 
@@ -659,6 +705,18 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
                           <Download className="w-3.5 h-3.5" />
                           <span>MP3</span>
                         </button>
+                      )}
+
+                      {currentBatch.tight_audio.mp4_path && (
+                        <a
+                          href={api.getBatchTightAudioUrl(currentBatch.id, 'mp4', true)}
+                          download
+                          className="px-3 py-1.5 rounded-xl bg-purple-600/80 hover:bg-purple-500 text-white text-xs font-bold shadow transition-all active:scale-95 flex items-center space-x-1"
+                          title="Download Timeline Video (MP4)"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>MP4</span>
+                        </a>
                       )}
                     </div>
                   </div>
@@ -695,7 +753,14 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
             </div>
           )}
         </div>
-      ) : null}
+      ) : (
+        <div className="text-center py-20 bg-studio-card/20 border border-dashed border-studio-cardBorder rounded-3xl space-y-4 animate-pulse">
+          <div className="w-10 h-10 rounded-2xl bg-blue-500/20 text-blue-400 mx-auto flex items-center justify-center">
+            <RefreshCw className="w-5 h-5 animate-spin" />
+          </div>
+          <p className="text-xs font-mono text-studio-textMuted">Loading workspace batches and paragraphs...</p>
+        </div>
+      )}
 
       {/* Reference Importer Modal */}
       {showImporter && selectedBatchId && (
@@ -703,51 +768,6 @@ export const BatchPage: React.FC<BatchPageProps> = ({ project, onBack }) => {
           batchId={selectedBatchId}
           onImportSuccess={fetchCurrentBatch}
           onClose={() => setShowImporter(false)}
-        />
-      )}
-
-      {/* Script Word Checker Modal */}
-      {showScriptChecker && (
-        <ScriptWordCheckerModal
-          isOpen={showScriptChecker}
-          onClose={() => setShowScriptChecker(false)}
-          paragraphs={currentBatch?.paragraphs || []}
-          onUpdateParagraph={async (index, updatedTranscript) => {
-            const paras = currentBatch?.paragraphs || [];
-            if (index < 0 || index >= paras.length) return;
-            const p = paras[index];
-            const cleanWords = updatedTranscript.replace(/\[.*?\]/g, '').trim();
-            const wordCount = cleanWords ? cleanWords.split(/\s+/).filter(Boolean).length : 0;
-            const charCount = updatedTranscript.length;
-            const limitStatus = charCount > 650 ? 'OVER_LIMIT' : 'SAFE';
-
-            if (p.id) {
-              await api.updateParagraph(p.id, {
-                transcript: updatedTranscript,
-                word_count: wordCount,
-                character_count: charCount,
-                limit_status: limitStatus,
-              });
-              await fetchCurrentBatch();
-            }
-          }}
-          onUpdateAllParagraphs={async (updatedParas) => {
-            for (const p of updatedParas) {
-              if (p.id) {
-                const cleanWords = (p.transcript || '').replace(/\[.*?\]/g, '').trim();
-                const wordCount = cleanWords ? cleanWords.split(/\s+/).filter(Boolean).length : 0;
-                const charCount = (p.transcript || '').length;
-                const limitStatus = charCount > 650 ? 'OVER_LIMIT' : 'SAFE';
-                await api.updateParagraph(p.id, {
-                  transcript: p.transcript,
-                  word_count: wordCount,
-                  character_count: charCount,
-                  limit_status: limitStatus,
-                });
-              }
-            }
-            await fetchCurrentBatch();
-          }}
         />
       )}
 

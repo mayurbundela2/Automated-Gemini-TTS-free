@@ -85,11 +85,18 @@ def get_audio_file(gen_id: int, format: str = Query("wav", enum=["wav", "mp3"]),
     filename = f"narration_{g.project_name or 'project'}_B{g.batch_number or 1}_P{g.paragraph_number or 1}.{format}"
     disposition = "attachment" if download else "inline"
 
-    return FileResponse(
-        path=file_path,
+    with open(file_path, "rb") as f:
+        content = f.read()
+
+    from fastapi import Response
+    return Response(
+        content=content,
         media_type=media_type,
-        filename=filename,
-        headers={"Content-Disposition": f"{disposition}; filename=\"{filename}\""}
+        headers={
+            "Content-Disposition": f"{disposition}; filename=\"{filename}\"",
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(len(content)),
+        }
     )
 
 

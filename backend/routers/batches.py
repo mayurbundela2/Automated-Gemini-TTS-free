@@ -427,11 +427,18 @@ def get_batch_tight_audio(batch_id: int, format: str = "mp4", download: bool = F
     filename = f"full_batch_{batch.batch_number}_tight.{format}"
     disposition = "attachment" if download else "inline"
 
-    return FileResponse(
-        path=file_path,
+    with open(file_path, "rb") as f:
+        content = f.read()
+
+    from fastapi import Response
+    return Response(
+        content=content,
         media_type=media_type,
-        filename=filename,
-        headers={"Content-Disposition": f"{disposition}; filename=\"{filename}\""}
+        headers={
+            "Content-Disposition": f"{disposition}; filename=\"{filename}\"",
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(len(content)),
+        }
     )
 
 
@@ -443,6 +450,14 @@ def get_batch_combined_audio(batch_id: int, format: str = "wav", download: bool 
 
     file_path = batch.combined_mp3_path if format == "mp3" and batch.combined_mp3_path else batch.combined_wav_path
     if not file_path or not os.path.exists(file_path):
+        try:
+            combine_batch_audio_files(batch_id, db)
+            batch = db.query(Batch).filter(Batch.id == batch_id).first()
+            file_path = batch.combined_mp3_path if format == "mp3" and batch.combined_mp3_path else batch.combined_wav_path
+        except Exception as e:
+            pass
+
+    if not file_path or not os.path.exists(file_path):
         file_path = batch.combined_wav_path
         format = "wav"
 
@@ -453,11 +468,18 @@ def get_batch_combined_audio(batch_id: int, format: str = "wav", download: bool 
     filename = f"full_batch_{batch.batch_number}_{batch.name}.{format}"
     disposition = "attachment" if download else "inline"
 
-    return FileResponse(
-        path=file_path,
+    with open(file_path, "rb") as f:
+        content = f.read()
+
+    from fastapi import Response
+    return Response(
+        content=content,
         media_type=media_type,
-        filename=filename,
-        headers={"Content-Disposition": f"{disposition}; filename=\"{filename}\""}
+        headers={
+            "Content-Disposition": f"{disposition}; filename=\"{filename}\"",
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(len(content)),
+        }
     )
 
 

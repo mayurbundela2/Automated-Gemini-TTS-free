@@ -274,8 +274,8 @@ export const ParagraphCard: React.FC<ParagraphCardProps> = ({
             <textarea
               value={paragraph.transcript}
               onChange={(e) => handleFieldChange('transcript', e.target.value)}
-              rows={5}
-              className="w-full bg-[#0B101B] border border-slate-700 focus:border-blue-500 rounded-xl p-3.5 text-xs font-mono text-slate-100 focus:outline-none resize-y min-h-[110px] leading-relaxed"
+              rows={4}
+              className="w-full bg-[#0B101B] border border-slate-700 focus:border-blue-500 rounded-xl p-3.5 text-xs font-mono text-slate-100 focus:outline-none resize-none leading-relaxed"
               placeholder="Enter spoken narration script..."
             />
           </div>
